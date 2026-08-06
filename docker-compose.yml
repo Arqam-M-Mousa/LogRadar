@@ -1,0 +1,32 @@
+services:
+  logradar.api:
+    image: ${DOCKER_REGISTRY-}logradarapi
+    build:
+      context: .
+      dockerfile: LogRadar.API/Dockerfile
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cpus: "0.5"
+    mem_limit: 256m
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: logradar
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d logradar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    cpus: "1.0"
+    mem_limit: 1g
+
+volumes:
+  postgres_data:

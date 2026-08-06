@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+  <Project Path="LogRadar.API/LogRadar.API.csproj" />
+  <Project Path="LogRadar.Domain/LogRadar.Domain.csproj" />
+  <Project Path="LogRadar.Infrastructure/LogRadar.Infrastructure.csproj" />
+</Solution>
