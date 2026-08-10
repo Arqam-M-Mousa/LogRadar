@@ -1,5 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
-using LogRadar.Domain.Entities;
+﻿using LogRadar.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace LogRadar.Infrastructure.Persistence;
 
