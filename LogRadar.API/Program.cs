@@ -1,4 +1,5 @@
 using LogRadar.Infrastructure;
+using LogRadar.Infrastructure.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,10 +18,13 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
+await app.Services.ApplyDatabaseMigrationsAsync();
+
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

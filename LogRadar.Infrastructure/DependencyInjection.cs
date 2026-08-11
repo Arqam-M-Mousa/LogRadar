@@ -14,6 +14,9 @@ public static class DependencyInjection
     {
         services.AddDbConfig(configuration);
 
+        services.AddHealthChecks()
+            .AddDbContextCheck<LogRadarDbContext>();
+
         return services;
 
     }
