@@ -33,7 +33,7 @@ public static class DependencyInjection
 
         services.AddMassTransit(busConfig =>
         {
-            // Consumers registered here 
+            busConfig.AddConsumer<LogBatchConsumer>();
 
             busConfig.UsingRabbitMq((context, cfg) =>
             {
