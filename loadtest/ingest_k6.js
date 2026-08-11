@@ -11,17 +11,25 @@ const logsPerSecTarget = __ENV.LOGS_PER_SEC ? parseInt(__ENV.LOGS_PER_SEC) : 150
 const requestsPerSecTarget = Math.ceil(logsPerSecTarget / batchSize);
 
 export const options = {
-    stages: [
-        { duration: '8s', target: Math.max(5, Math.floor(requestsPerSecTarget * 0.1)) },
-        { duration: '7s', target: Math.floor(requestsPerSecTarget * 0.5) },
-        { duration: '35s', target: requestsPerSecTarget }, // sustained
-        { duration: '10s', target: 0 }
-    ],
-    thresholds: {
-        'errors': ['rate<0.01'],
-        'http_req_duration': ['p(95)<2000']
+    scenarios: {
+        ingest: {
+            executor: 'ramping-arrival-rate',
+            startRate: 0,
+            timeUnit: '1s',
+            preAllocatedVUs: Math.max(100, requestsPerSecTarget * 2),
+            maxVUs: Math.max(200, requestsPerSecTarget * 4),
+            stages: [
+                { duration: '8s', target: Math.max(5, Math.floor(requestsPerSecTarget * 0.1)) },
+                { duration: '7s', target: Math.floor(requestsPerSecTarget * 0.5) },
+                { duration: '35s', target: requestsPerSecTarget }, // sustained
+                { duration: '10s', target: 0 },
+            ],
+        },
     },
-    vus: __ENV.VUS ? parseInt(__ENV.VUS) : 300
+    thresholds: {
+        errors: ['rate<0.01'],
+        http_req_duration: ['p(95)<2000'],
+    },
 };
 
 function makeLog(i) {
@@ -30,7 +38,7 @@ function makeLog(i) {
         level: 'info',
         service: 'loadtest',
         message: `synthetic log ${i}`,
-        attributes: { host: 'loadgen', index: i, rnd: Math.random() }
+        attributes: { host: 'loadgen', index: i, rnd: Math.random() },
     };
 }
 
@@ -41,7 +49,7 @@ export default function () {
 
     const res = http.post(baseUrl + endpoint, JSON.stringify({ logs: batch }), {
         headers: { 'Content-Type': 'application/json' },
-        timeout: '120s'
+        timeout: '10s',
     });
 
     const ok = res.status === 200 || res.status === 201;
