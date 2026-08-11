@@ -1,5 +1,7 @@
 ﻿using FluentValidation;
 using LogRadar.API.Contracts.Logs;
+using LogRadar.Application.Abstractions;
+using LogRadar.Application.Contracts;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LogRadar.API.Controllers;
@@ -9,14 +11,16 @@ namespace LogRadar.API.Controllers;
 public class LogsController : ControllerBase
 {
     private readonly IValidator<LogInput> _validator;
+    private readonly ILogBatchPublisher _publisher;
 
-    public LogsController(IValidator<LogInput> validator)
+    public LogsController(IValidator<LogInput> validator, ILogBatchPublisher publisher)
     {
         _validator = validator;
+        _publisher = publisher;
     }
 
     [HttpPost]
-    public IActionResult Ingest(IngestLogsRequest request)
+    public async Task<IActionResult> Ingest(IngestLogsRequest request, CancellationToken cancellationToken)
     {
         if (request.Logs is null || request.Logs.Count == 0)
         {
@@ -27,7 +31,7 @@ public class LogsController : ControllerBase
         }
 
         var rejected = new List<RejectedLog>();
-        var accepted = 0;
+        var validLogs = new List<LogMessage>();
 
         for (var index = 0; index < request.Logs.Count; index++)
         {
@@ -48,16 +52,23 @@ public class LogsController : ControllerBase
                 continue;
             }
 
-            accepted++;
+            validLogs.Add(log.ToLogMessage());
+        }
+
+        if (validLogs.Count > 0)
+        {
+            var batch = new LogIngestedBatch(validLogs);
+
+            await _publisher.PublishAsync(batch, cancellationToken);
         }
 
         var response = new IngestLogsResponse
         {
-            Accepted = accepted,
+            Accepted = validLogs.Count,
             Rejected = rejected
         };
 
-        return accepted > 0
+        return validLogs.Count > 0
             ? Ok(response)
             : BadRequest(response);
     }
