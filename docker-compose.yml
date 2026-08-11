@@ -45,8 +45,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    cpus: "0.5"
-    mem_limit: 256m
+    cpus: "1.0"
+    mem_limit: 512m
 
 volumes:
   postgres_data:

@@ -1,5 +1,4 @@
-﻿
-using LogRadar.Application.Abstractions;
+﻿using LogRadar.Application.Abstractions;
 using LogRadar.Infrastructure.Messaging;
 using LogRadar.Infrastructure.Persistence;
 using MassTransit;
@@ -15,17 +14,18 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.AddDbConfig(configuration);
+        services.AddNpgsqlDataSource(configuration.GetConnectionString("DefaultConnection")!);
+        services.AddScoped<NpgsqlLogBulkWriter>();
         services.AddLogRadarMessaging(configuration);
         services.AddHealthChecks()
             .AddDbContextCheck<LogRadarDbContext>();
 
         return services;
-
     }
 
-    public static IServiceCollection AddLogRadarMessaging(
-    this IServiceCollection services,
-    IConfiguration configuration)
+    private static IServiceCollection AddLogRadarMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
         var rabbitMqOptions = configuration
             .GetSection(RabbitMqOptions.SectionName)
@@ -43,7 +43,13 @@ public static class DependencyInjection
                     h.Password(rabbitMqOptions.Password);
                 });
 
-                cfg.ConfigureEndpoints(context);
+                cfg.ReceiveEndpoint("log-batch-consumer", e =>
+                {
+                    e.PrefetchCount = 32;
+                    e.ConcurrentMessageLimit = 8;
+
+                    e.ConfigureConsumer<LogBatchConsumer>(context);
+                });
             });
         });
 
