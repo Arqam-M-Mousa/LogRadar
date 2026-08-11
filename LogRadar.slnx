@@ -3,6 +3,7 @@
     <Build />
   </Project>
   <Project Path="LogRadar.API/LogRadar.API.csproj" />
+  <Project Path="LogRadar.Application/LogRadar.Application.csproj" Id="9fe0eda5-a158-4d17-a0b9-8742875b9aaf" />
   <Project Path="LogRadar.Domain/LogRadar.Domain.csproj" />
   <Project Path="LogRadar.Infrastructure/LogRadar.Infrastructure.csproj" />
 </Solution>

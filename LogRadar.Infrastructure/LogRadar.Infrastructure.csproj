@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\LogRadar.Application\LogRadar.Application.csproj" />
     <ProjectReference Include="..\LogRadar.Domain\LogRadar.Domain.csproj" />
   </ItemGroup>
 
