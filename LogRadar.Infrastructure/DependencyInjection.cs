@@ -1,5 +1,8 @@
 ﻿
+using LogRadar.Application.Abstractions;
+using LogRadar.Infrastructure.Messaging;
 using LogRadar.Infrastructure.Persistence;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,12 +15,41 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.AddDbConfig(configuration);
-
+        services.AddLogRadarMessaging(configuration);
         services.AddHealthChecks()
             .AddDbContextCheck<LogRadarDbContext>();
 
         return services;
 
+    }
+
+    public static IServiceCollection AddLogRadarMessaging(
+    this IServiceCollection services,
+    IConfiguration configuration)
+    {
+        var rabbitMqOptions = configuration
+            .GetSection(RabbitMqOptions.SectionName)
+            .Get<RabbitMqOptions>() ?? new RabbitMqOptions();
+
+        services.AddMassTransit(busConfig =>
+        {
+            // Consumers registered here 
+
+            busConfig.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host(rabbitMqOptions.Host, "/", h =>
+                {
+                    h.Username(rabbitMqOptions.Username);
+                    h.Password(rabbitMqOptions.Password);
+                });
+
+                cfg.ConfigureEndpoints(context);
+            });
+        });
+
+        services.AddScoped<ILogBatchPublisher, MassTransitLogBatchPublisher>();
+
+        return services;
     }
 
     private static IServiceCollection AddDbConfig(
