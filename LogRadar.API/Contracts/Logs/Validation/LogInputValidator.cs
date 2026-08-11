@@ -20,9 +20,7 @@ public sealed class LogInputValidator : AbstractValidator<LogInput>
             .WithMessage("timestamp is required")
             .Must(BeValidTimestamp)
             .When(x => !string.IsNullOrWhiteSpace(x.Timestamp))
-            .WithMessage("timestamp must be a valid ISO 8601 timestamp");
-
-        RuleFor(x => x.Timestamp)
+            .WithMessage("timestamp must be a valid ISO 8601 timestamp")
             .Must(NotMoreThanFiveMinutesInFuture)
             .When(x => BeValidTimestamp(x.Timestamp))
             .WithMessage("timestamp must not be more than five minutes in the future");
