@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using LogRadar.API.Contracts.Logs.LogIngest;
 using System.Text.Json;
 
 namespace LogRadar.API.Contracts.Logs.Validation;
