@@ -13,7 +13,7 @@ public sealed class LogInput
     public string? Level { get; init; }
     public string? Service { get; init; }
     public string? Message { get; init; }
-    public Dictionary<string, JsonElement>? Attributes { get; init; }
+    public JsonElement? Attributes { get; init; }
 }
 
 public sealed class IngestLogsResponse

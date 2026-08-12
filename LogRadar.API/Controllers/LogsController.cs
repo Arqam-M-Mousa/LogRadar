@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using LogRadar.API.Contracts.Logs.LogAggregate;
 using LogRadar.API.Contracts.Logs.LogIngest;
 using LogRadar.API.Contracts.Logs.LogQuery;
 using LogRadar.Application.Abstractions;
@@ -11,15 +12,15 @@ namespace LogRadar.API.Controllers;
 [Route("logs")]
 public class LogsController : ControllerBase
 {
-    private readonly IValidator<LogInput> _ingestValidator;
     private readonly IValidator<QueryLogsRequest> _queryValidator;
+    private readonly IValidator<AggregateLogsRequest> _aggregateValidator;
     private readonly ILogBatchPublisher _publisher;
     private readonly ILogQueryService _queryService;
 
-    public LogsController(IValidator<LogInput> validator, IValidator<QueryLogsRequest> queryValidator, ILogBatchPublisher publisher, ILogQueryService queryService)
+    public LogsController(IValidator<QueryLogsRequest> queryValidator, IValidator<AggregateLogsRequest> aggregateValidator, ILogBatchPublisher publisher, ILogQueryService queryService)
     {
-        _ingestValidator = validator;
         _queryValidator = queryValidator;
+        _aggregateValidator = aggregateValidator;
         _publisher = publisher;
         _queryService = queryService;
     }
@@ -36,28 +37,25 @@ public class LogsController : ControllerBase
         }
 
         var rejected = new List<RejectedLog>();
-        var validLogs = new List<LogMessage>();
+        var validLogs = new List<LogMessage>(request.Logs.Count);
+        var maximumAllowedTimestamp = DateTimeOffset.UtcNow.AddMinutes(5);
 
         for (var index = 0; index < request.Logs.Count; index++)
         {
             var log = request.Logs[index];
 
-            var validationResult = _ingestValidator.Validate(log);
-
-            if (!validationResult.IsValid)
+            if (!log.TryToLogMessage(maximumAllowedTimestamp, out var logMessage, out var rejectionReason))
             {
                 rejected.Add(new RejectedLog
                 {
                     Index = index,
-                    Reason = string.Join(
-                        "; ",
-                        validationResult.Errors.Select(x => x.ErrorMessage))
+                    Reason = rejectionReason!
                 });
 
                 continue;
             }
 
-            validLogs.Add(log.ToLogMessage());
+            validLogs.Add(logMessage!);
         }
 
         if (validLogs.Count > 0)
@@ -97,6 +95,27 @@ public class LogsController : ControllerBase
         var result = await _queryService.QueryAsync(filter, cancellationToken);
 
         return Ok(result.ToQueryLogsResponse());
+    }
+
+    [HttpGet("aggregate")]
+    public async Task<IActionResult> Aggregate(
+        [FromQuery] AggregateLogsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var validationResult = await _aggregateValidator.ValidateAsync(request, cancellationToken);
+
+        if (!validationResult.IsValid)
+        {
+            return BadRequest(new
+            {
+                error = validationResult.Errors.First().ErrorMessage
+            });
+        }
+
+        var filter = request.ToLogAggregationFilter(HttpContext.Request.Query);
+        var result = await _queryService.AggregateAsync(filter, cancellationToken);
+
+        return Ok(result.ToAggregateLogsResponse());
     }
 
 }
