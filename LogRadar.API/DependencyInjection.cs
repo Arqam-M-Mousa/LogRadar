@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using LogRadar.API.Contracts.Logs.LogQuery;
 using LogRadar.API.Contracts.Logs.Validation;
 
 namespace LogRadar.API;
@@ -9,6 +10,7 @@ public static class DependencyInjection
     {
         services.AddControllers();
         services.AddValidatorsFromAssemblyContaining<LogInputValidator>();
+        services.AddScoped<IValidator<QueryLogsRequest>, QueryLogsRequestValidator>();
 
         return services;
     }
