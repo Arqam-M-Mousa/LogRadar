@@ -1,6 +1,8 @@
 ﻿using LogRadar.Application.Abstractions;
 using LogRadar.Infrastructure.Messaging;
 using LogRadar.Infrastructure.Persistence;
+using LogRadar.Infrastructure.Persistence.Queries;
+using LogRadar.Infrastructure.Persistence.Writers;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -16,6 +18,7 @@ public static class DependencyInjection
         services.AddDbConfig(configuration);
         services.AddNpgsqlDataSource(configuration.GetConnectionString("DefaultConnection")!);
         services.AddScoped<NpgsqlLogBulkWriter>();
+        services.AddScoped<ILogQueryService, NpgsqlLogQueryService>();
         services.AddLogRadarMessaging(configuration);
         services.AddHealthChecks()
             .AddDbContextCheck<LogRadarDbContext>();

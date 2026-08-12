@@ -1,7 +1,7 @@
 ﻿using LogRadar.Application.Contracts;
 using Npgsql;
 
-namespace LogRadar.Infrastructure.Messaging;
+namespace LogRadar.Infrastructure.Persistence.Writers;
 
 public sealed class NpgsqlLogBulkWriter
 {

@@ -1,4 +1,5 @@
 ﻿using LogRadar.Application.Contracts;
+using LogRadar.Infrastructure.Persistence.Writers;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 
