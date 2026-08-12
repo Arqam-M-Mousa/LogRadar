@@ -26,6 +26,7 @@ public class LogsController : ControllerBase
     }
 
     [HttpPost]
+    [RequestSizeLimit(4 * 1024 * 1024)]
     public async Task<IActionResult> Ingest(IngestLogsRequest request, CancellationToken cancellationToken)
     {
         if (request.Logs is null || request.Logs.Count == 0)

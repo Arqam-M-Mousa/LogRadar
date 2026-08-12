@@ -62,7 +62,7 @@ public static class LogInputMapper
 
         Dictionary<string, object>? attributes = null;
 
-        if (input.Attributes is { ValueKind: not System.Text.Json.JsonValueKind.Null } attributesElement)
+        if (input.Attributes is { } attributesElement)
         {
             if (attributesElement.ValueKind != System.Text.Json.JsonValueKind.Object)
             {
