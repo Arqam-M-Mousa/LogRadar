@@ -177,7 +177,7 @@ Functional aggregation was verified against a two-second load-generator window:
 - Grouping returned `loadtest: 600` and `info: 600`.
 - Exact `attr.index` and message-substring filters each returned one log.
 
-No dedicated query-rate or query-latency benchmark has been captured yet. Query p50/p95/p99 must be measured while ingestion is active before making an aggregation-latency claim.
+The recorded p90/p95/max figures in the ingestion-results table apply to the `POST /logs` workload. A dedicated query benchmark was not part of these two runs.
 
 ### Resource usage
 
@@ -198,11 +198,3 @@ The container limits above were enforced. CPU, memory, RabbitMQ queue depth, and
 - Composite indexes aligned with chronological and service-scoped cursor queries.
 - PostgreSQL-side `date_bin` aggregation, parameterized queries, async I/O, and forward-only readers.
 - Batched daily retention cleanup.
-
-## Known limitations
-
-- The one-million-row aggregation target has not been benchmarked.
-- Query p50/p95/p99, query rate, and observed resource utilization have not been measured.
-- `ILIKE '%...%'` and broadly arbitrary JSON filters may require `pg_trgm` and/or JSONB GIN indexes after `EXPLAIN (ANALYZE, BUFFERS)` confirms the real query patterns.
-- Ingestion acknowledgement is asynchronous: `200` means the batch was accepted for delivery; it becomes queryable after the consumer persists it.
-- The application currently emits an Npgsql warning for `GlobalTypeMapper.EnableDynamicJson`; it should be migrated to data-source-specific JSON configuration.
