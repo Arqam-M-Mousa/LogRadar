@@ -19,6 +19,7 @@ export const options = {
             preAllocatedVUs: Math.max(100, requestsPerSecTarget * 2),
             maxVUs: Math.max(200, requestsPerSecTarget * 4),
             stages: [
+                { duration: '15s', target: Math.max(5, Math.floor(requestsPerSecTarget * 0.05)) }, // warm-up: low, sustained
                 { duration: '8s', target: Math.max(5, Math.floor(requestsPerSecTarget * 0.1)) },
                 { duration: '7s', target: Math.floor(requestsPerSecTarget * 0.5) },
                 { duration: '35s', target: requestsPerSecTarget }, // sustained
@@ -31,7 +32,6 @@ export const options = {
         http_req_duration: ['p(95)<2000'],
     },
 };
-
 function makeLog(i) {
     return {
         timestamp: new Date().toISOString(),

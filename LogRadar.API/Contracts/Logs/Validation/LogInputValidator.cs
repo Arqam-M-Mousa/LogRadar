@@ -40,16 +40,15 @@ public sealed class LogInputValidator : AbstractValidator<LogInput>
             .NotEmpty()
             .WithMessage("message is required");
 
-        RuleForEach(x => x.Attributes)
-            .Must(IsSupportedAttribute)
-            .WithMessage("attribute values must be strings, numbers, or booleans");
+        RuleFor(x => x.Attributes)
+            .Must(HaveOnlySupportedAttributeValues)
+            .WithMessage("attribute values must be strings, numbers, or booleans")
+            .When(x => x.Attributes is { Count: > 0 });
     }
 
     private static bool BeValidTimestamp(string? value)
     {
-        return DateTimeOffset.TryParse(
-            value,
-            out _);
+        return DateTimeOffset.TryParse(value, out _);
     }
 
     private static bool NotMoreThanFiveMinutesInFuture(string? value)
@@ -60,16 +59,25 @@ public sealed class LogInputValidator : AbstractValidator<LogInput>
         return timestamp <= DateTimeOffset.UtcNow.AddMinutes(5);
     }
 
-    private static bool IsSupportedAttribute(
-        KeyValuePair<string, JsonElement> attribute)
+    private static bool HaveOnlySupportedAttributeValues(
+        Dictionary<string, JsonElement>? attributes)
     {
-        return attribute.Value.ValueKind switch
+        if (attributes is null)
+            return true;
+
+        foreach (var kv in attributes)
         {
-            JsonValueKind.String => true,
-            JsonValueKind.Number => true,
-            JsonValueKind.True => true,
-            JsonValueKind.False => true,
-            _ => false
-        };
+            var kind = kv.Value.ValueKind;
+
+            if (kind != JsonValueKind.String &&
+                kind != JsonValueKind.Number &&
+                kind != JsonValueKind.True &&
+                kind != JsonValueKind.False)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

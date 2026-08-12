@@ -3,8 +3,12 @@
     "Docker Compose": {
       "commandName": "DockerCompose",
       "commandVersion": "1.0",
+      "composeLaunchAction": "None",
+      "composeLaunchServiceName": "logradar.api",
       "serviceActions": {
-        "logradar.api": "StartDebugging"
+        "logradar.api": "StartDebugging",
+        "postgres": "StartWithoutDebugging",
+        "rabbitmq": "StartWithoutDebugging"
       }
     }
   }
