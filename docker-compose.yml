@@ -5,6 +5,7 @@ services:
       context: .
       dockerfile: LogRadar.API/Dockerfile
     environment:
+      ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: guest
