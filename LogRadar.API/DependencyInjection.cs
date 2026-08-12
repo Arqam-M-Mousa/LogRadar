@@ -10,7 +10,7 @@ public static class DependencyInjection
     public static IServiceCollection AddApi(this IServiceCollection services)
     {
         services.AddControllers();
-        services.AddValidatorsFromAssemblyContaining<LogInputValidator>();
+        services.AddValidatorsFromAssemblyContaining<AggregateLogsRequestValidator>();
         services.AddScoped<IValidator<QueryLogsRequest>, QueryLogsRequestValidator>();
         services.AddScoped<IValidator<AggregateLogsRequest>, AggregateLogsRequestValidator>();
 
