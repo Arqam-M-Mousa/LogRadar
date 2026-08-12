@@ -126,4 +126,85 @@ public sealed class NpgsqlLogQueryService : ILogQueryService
 
         return new LogQueryResult(rows, hasMore);
     }
+
+    public async Task<LogAggregationResult> AggregateAsync(
+        LogAggregationFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var groupColumn = filter.GroupBy switch
+        {
+            "service" => "\"Service\"",
+            "level" => "\"Level\"",
+            _ => null
+        };
+
+        var sql = new StringBuilder(
+            "SELECT date_bin(@bucket::interval, \"Timestamp\", '2000-01-01T00:00:00Z'::timestamptz) AS \"Start\",");
+        sql.Append(groupColumn ?? "NULL::text").Append(" AS \"Group\", COUNT(*) AS \"Count\" ")
+           .Append("FROM log WHERE \"Timestamp\" >= @since AND \"Timestamp\" < @until");
+
+        var parameters = new List<NpgsqlParameter>
+        {
+            new("bucket", NpgsqlDbType.Varchar) { Value = filter.Bucket },
+            new("since", NpgsqlDbType.TimestampTz) { Value = filter.Since },
+            new("until", NpgsqlDbType.TimestampTz) { Value = filter.Until }
+        };
+        var paramIndex = 0;
+
+        string NextParamName() => $"p{paramIndex++}";
+
+        if (!string.IsNullOrWhiteSpace(filter.Service))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Service\" = @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = filter.Service });
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Level))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Level\" = @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = filter.Level });
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.MessageContains))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Message\" ILIKE @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = $"%{filter.MessageContains}%" });
+        }
+
+        foreach (var (key, value) in filter.AttributeFilters)
+        {
+            var keyName = NextParamName();
+            var valueName = NextParamName();
+            sql.Append(" AND \"Attributes\" ->> @").Append(keyName).Append(" = @").Append(valueName);
+            parameters.Add(new NpgsqlParameter(keyName, NpgsqlDbType.Varchar) { Value = key });
+            parameters.Add(new NpgsqlParameter(valueName, NpgsqlDbType.Varchar) { Value = value });
+        }
+
+        sql.Append(" GROUP BY 1");
+        if (groupColumn is not null)
+            sql.Append(", 2");
+
+        sql.Append(" ORDER BY 1 ASC");
+        if (groupColumn is not null)
+            sql.Append(", 2 ASC");
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql.ToString(), connection);
+        command.Parameters.AddRange(parameters.ToArray());
+
+        var buckets = new List<LogAggregationResultRow>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            buckets.Add(new LogAggregationResultRow(
+                reader.GetFieldValue<DateTimeOffset>(0),
+                await reader.IsDBNullAsync(1, cancellationToken) ? null : reader.GetString(1),
+                reader.GetInt64(2)));
+        }
+
+        return new LogAggregationResult(buckets);
+    }
 }
