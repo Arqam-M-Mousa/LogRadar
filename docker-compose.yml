@@ -1,9 +1,12 @@
+version: '3.8'
+
 services:
   logradar.api:
     image: logradarapi
     build:
       context: .
       dockerfile: LogRadar.API/Dockerfile
+    restart: unless-stopped
     environment:
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres
@@ -23,15 +26,21 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
-    cpus: "0.5"
-    mem_limit: 256m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
 
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: logradar
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,11 +48,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    cpus: "1.0"
-    mem_limit: 1g
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 1024M
 
   rabbitmq:
     image: rabbitmq:4-management
+    restart: unless-stopped
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -52,8 +65,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    cpus: "1.0"
-    mem_limit: 512m
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 512M
 
 volumes:
   postgres_data:
