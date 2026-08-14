@@ -1,6 +1,6 @@
 services:
   logradar.api:
-    image: ${DOCKER_REGISTRY-}logradarapi
+    image: logradarapi
     build:
       context: .
       dockerfile: LogRadar.API/Dockerfile
@@ -17,6 +17,12 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     cpus: "0.5"
     mem_limit: 256m
 
@@ -40,7 +46,7 @@ services:
     image: rabbitmq:4-management
     ports:
       - "5672:5672"
-      - "15672:15672"   # management UI
+      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s

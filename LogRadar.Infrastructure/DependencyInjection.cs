@@ -52,8 +52,8 @@ public static class DependencyInjection
 
                 cfg.ReceiveEndpoint("log-batch-consumer", e =>
                 {
-                    e.PrefetchCount = 32;
-                    e.ConcurrentMessageLimit = 8;
+                    e.PrefetchCount = 36;
+                    e.ConcurrentMessageLimit = 12;
 
                     e.ConfigureConsumer<LogBatchConsumer>(context);
                 });
