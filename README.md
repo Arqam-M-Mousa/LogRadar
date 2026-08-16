@@ -1,6 +1,6 @@
 # LogRadar
 
-LogRadar is a structured-log ingestion and query service built with ASP.NET Core, RabbitMQ, and PostgreSQL. It accepts batched logs, validates each entry independently, writes asynchronously with PostgreSQL binary `COPY`, supports cursor-based search and time-bucketed aggregation, and removes expired logs automatically.
+LogRadar is a structured-log ingestion and query service built with ASP.NET Core and PostgreSQL. It accepts batched logs, validates each entry independently, buffers accepted logs in-process, writes asynchronously with PostgreSQL binary `COPY`, supports cursor-based search and time-bucketed aggregation, and removes expired logs automatically.
 
 ## Start the service
 
@@ -105,8 +105,8 @@ Both read endpoints return invalid parameters as:
 ```text
 HTTP POST /logs
   -> validate and map each entry once
-  -> publish batch to RabbitMQ
-  -> MassTransit consumer
+  -> bounded in-process channel
+  -> concurrent batch writers
   -> PostgreSQL binary COPY
 
 HTTP GET /logs or /logs/aggregate
@@ -114,7 +114,20 @@ HTTP GET /logs or /logs/aggregate
   -> PostgreSQL
 ```
 
-RabbitMQ separates request acceptance from database persistence. PostgreSQL remains the system of record for all log writes and reads.
+The bounded in-process channel separates request acceptance from database persistence while applying back-pressure when it reaches capacity. PostgreSQL remains the system of record for all log writes and reads. Because the buffer is process-local, accepted logs waiting in it are not durable until their batch has been written to PostgreSQL.
+
+### Ingestion configuration
+
+```json
+"Ingestion": {
+  "ChannelCapacity": 20000,
+  "MaxBatchSize": 2000,
+  "FlushIntervalMs": 50,
+  "WriterConcurrency": 2
+}
+```
+
+`ChannelCapacity` limits the number of logs held in memory. `MaxBatchSize` and `FlushIntervalMs` control when a PostgreSQL binary `COPY` operation is flushed. `WriterConcurrency` controls the number of concurrent batch writers.
 
 ### Schema and indexes
 
@@ -150,7 +163,6 @@ The retention worker deletes rows older than the configured cutoff in batches of
 - Local Docker Compose on Windows.
 - API: 0.5 CPU, 256 MiB memory limit.
 - PostgreSQL 17: 1 CPU, 1 GiB memory limit.
-- RabbitMQ 4: 1 CPU, 512 MiB memory limit.
 - Load generator: local k6 using `LoadTest/ingest_k6.js` and its `ramping-arrival-rate` scenario.
 
 ### Dataset and workload
@@ -181,18 +193,18 @@ The recorded p90/p95/max figures in the ingestion-results table apply to the `PO
 
 ### Resource usage
 
-The container limits above were enforced. CPU, memory, RabbitMQ queue depth, and PostgreSQL I/O/cache metrics were not captured during these runs, so no observed resource-use values are claimed.
+The container limits above were enforced. CPU, memory, ingestion-buffer depth, and PostgreSQL I/O/cache metrics were not captured during these runs, so no observed resource-use values are claimed.
 
 ### Bottlenecks discovered
 
-- Ingestion p95 rose from 698.71 ms at the lower target to 1.41 s at the higher target, which indicates growing queueing/back-pressure in the HTTP → RabbitMQ → consumer → PostgreSQL path.
+- Ingestion p95 rose from 698.71 ms at the lower target to 1.41 s at the higher target, which indicates growing back-pressure in the HTTP → ingestion buffer → PostgreSQL path.
 - The benchmark ramps rather than holds a rate, preventing a sustained-capacity conclusion.
 - Arbitrary JSON-attribute filters and `%substring%` message searches have no specialized indexes yet and are expected to be the primary query bottlenecks at larger datasets.
 
 ### Optimizations applied
 
 - PostgreSQL binary `COPY` through Npgsql instead of EF Core per-entity inserts.
-- RabbitMQ batch buffering and concurrent consumer limits (`PrefetchCount = 32`, `ConcurrentMessageLimit = 8`).
+- A bounded in-process ingestion buffer with two concurrent batch writers.
 - Single-pass ingestion validation/mapping: one timestamp parse, UTC normalization, and no FluentValidation-result allocation per log.
 - 4 MiB request-size bound for the API memory budget.
 - Composite indexes aligned with chronological and service-scoped cursor queries.
