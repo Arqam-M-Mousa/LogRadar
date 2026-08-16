@@ -2,7 +2,7 @@
 
 LogRadar is a structured-log ingestion and query service built with ASP.NET Core and PostgreSQL. It accepts batched logs, validates each entry independently, buffers accepted logs in-process, writes asynchronously with PostgreSQL binary `COPY`, supports cursor-based search and time-bucketed aggregation, and removes expired logs automatically.
 
-## Start the service
+## Setup and usage
 
 Prerequisite: Docker Desktop with Docker Compose v2.
 
@@ -22,9 +22,13 @@ The health endpoint returns `200` after PostgreSQL is reachable and database mig
 docker compose down
 ```
 
-## API reference
+## API documentation
 
-### `POST /logs`
+### `GET /health`
+
+Returns HTTP 200 once the database connection is established, migrations have been applied, and the service is ready to accept traffic.
+
+### `POST /logs` — Ingest Logs
 
 The endpoint accepts one or more logs. Each entry is validated independently: valid entries are accepted even if other entries in the batch are rejected.
 
@@ -41,11 +45,23 @@ curl.exe -X POST "http://localhost:8080/logs" `
 }
 ```
 
-Valid `level` values are `debug`, `info`, `warn`, and `error`. `timestamp`, `service`, and `message` are required; timestamps cannot be more than five minutes in the future. `attributes` is optional, but when supplied must be a flat object containing only strings, numbers, and booleans.
+**Validation rules:**
 
-The maximum request size is 4 MiB. Valid-entry responses are `200`; an entirely rejected batch, malformed JSON, or invalid top-level body returns `400`.
+| Field | Rules |
+|---|---|
+| `timestamp` | Required. Valid ISO 8601. Must not be more than 5 minutes in the future. |
+| `level` | Required. One of `debug`, `info`, `warn`, `error`. |
+| `service` | Required. Non-empty string. |
+| `message` | Required. Non-empty string. |
+| `attributes` | Optional. Flat object with string, number, or boolean values. Nested objects and arrays are not allowed. |
 
-### `GET /logs`
+The maximum request size is 4 MiB. Valid-entry responses return HTTP 200; an entirely rejected batch, malformed JSON, or invalid top-level body returns HTTP 400 with:
+
+```json
+{ "error": "<description>" }
+```
+
+### `GET /logs` — Query Logs
 
 All filters are optional and may be combined.
 
@@ -53,59 +69,125 @@ All filters are optional and may be combined.
 curl.exe "http://localhost:8080/logs?service=loadtest&level=info&attr.host=loadgen&q=synthetic%20log&limit=100"
 ```
 
-| Parameter | Meaning |
-|---|---|
-| `service` | Exact service match |
-| `level` | Exact log-level match |
-| `since` | Inclusive ISO-8601 start timestamp |
-| `until` | Exclusive ISO-8601 end timestamp |
-| `attr.<key>` | Attribute equality, compared as text |
-| `q` | Case-insensitive message substring |
-| `limit` | 1–1000; defaults to 100 |
-| `cursor` | Opaque cursor from the prior response |
+| Parameter | Meaning | Example |
+|---|---|---|
+| `service` | Exact service-name match | `service=checkout` |
+| `level` | Exact level match | `level=error` |
+| `since` | Inclusive start of the time range | `since=2026-07-20T14:00:00Z` |
+| `until` | Exclusive end of the time range | `until=2026-07-20T15:00:00Z` |
+| `attr.<key>` | Attribute equality, compared as strings | `attr.user_id=42` |
+| `q` | Case-insensitive substring match on message | `q=declined` |
+| `limit` | Maximum number of results; default 100, max 1000 | `limit=500` |
+| `cursor` | Opaque cursor from a prior response | `cursor=eyJpZCI6...` |
 
-Results are ordered by timestamp descending, then ID descending. `next_cursor` is `null` when no more rows exist.
+Results are sorted by timestamp descending, then ID descending (deterministic). `next_cursor` is `null` when no more rows exist. The cursor is Base64-encoded and opaque.
 
-### `GET /logs/aggregate`
+```json
+{
+  "logs": [
+    {
+      "id": "123",
+      "timestamp": "2026-08-12T10:00:00Z",
+      "level": "error",
+      "service": "checkout",
+      "message": "payment declined",
+      "attributes": { "user_id": "42" }
+    }
+  ],
+  "next_cursor": "eyJpZCI6..."
+}
+```
 
-`since`, `until`, and `bucket` are required. Supported bucket values are `1m`, `5m`, `1h`, and `1d`. Optional filters are the same as log search except pagination; `group_by` may be `service` or `level`.
+### `GET /logs/aggregate` — Aggregate Logs
+
+Returns time-bucketed log counts. `since`, `until`, and `bucket` are required.
 
 ```powershell
-# Count load-generator logs in a two-second sample window
-curl.exe "http://localhost:8080/logs/aggregate?since=2026-08-12T15%3A41%3A03.529%2B00%3A00&until=2026-08-12T15%3A41%3A05.529%2B00%3A00&bucket=1m&service=loadtest&level=info&attr.host=loadgen"
+curl.exe "http://localhost:8080/logs/aggregate?since=2026-08-12T15%3A41%3A00Z&until=2026-08-12T15%3A45%3A00Z&bucket=1m&service=loadtest&level=info"
 
-# Group counts by service
-curl.exe "http://localhost:8080/logs/aggregate?since=2026-08-12T15%3A41%3A03.529%2B00%3A00&until=2026-08-12T15%3A41%3A05.529%2B00%3A00&bucket=1m&group_by=service"
+curl.exe "http://localhost:8080/logs/aggregate?since=2026-08-12T15%3A41%3A00Z&until=2026-08-12T15%3A45%3A00Z&bucket=1m&group_by=service"
 ```
+
+| Parameter | Required | Meaning | Example |
+|---|---|---|---|
+| `since` | Yes | Inclusive start of aggregation range | `since=2026-07-20T14:00:00Z` |
+| `until` | Yes | Exclusive end of aggregation range | `until=2026-07-20T15:00:00Z` |
+| `bucket` | Yes | Bucket size: `1m`, `5m`, `1h`, or `1d` | `bucket=1m` |
+| `service` | No | Exact service-name filter | `service=checkout` |
+| `level` | No | Exact level filter | `level=error` |
+| `attr.<key>` | No | Attribute equality, compared as strings | `attr.user_id=42` |
+| `q` | No | Case-insensitive message substring | `q=declined` |
+| `group_by` | No | Group results by `service` or `level` | `group_by=service` |
 
 ```json
 {
   "buckets": [
-    {
-      "start": "2026-08-12T15:41:00Z",
-      "group": "loadtest",
-      "count": 600
-    }
+    { "start": "2026-08-12T15:41:00Z", "group": "loadtest", "count": 600 },
+    { "start": "2026-08-12T15:42:00Z", "group": "loadtest", "count": 450 }
   ]
 }
 ```
 
-Aggregate rows are sorted by bucket start ascending. Empty buckets may be omitted. When `group_by` is omitted, `group` is `null`.
+Results are ordered by bucket start ascending. Empty buckets may be omitted. When `group_by` is not provided, `group` is `null`.
 
-Both read endpoints return invalid parameters as:
+Invalid parameters return HTTP 400:
 
 ```json
 { "error": "<description>" }
 ```
 
-## Design
+## Schema and index design
 
-### Data flow
+### Table: `log`
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | `bigint` | Identity primary key |
+| `Timestamp` | `timestamptz` | Required |
+| `Level` | `varchar(5)` | Stored as string (`debug`, `info`, `warn`, `error`) |
+| `Service` | `text` | Required |
+| `Message` | `text` | Required |
+| `Attributes` | `jsonb` | Nullable |
+
+### Indexes
+
+- `(Timestamp DESC, Id DESC)` — supports chronological reads and deterministic cursor pagination.
+- `(Service ASC, Timestamp DESC, Id DESC)` — supports service-filtered reads with cursor pagination.
+
+### Aggregation
+
+Aggregation is executed in PostgreSQL using `date_bin()` for time bucketing. Dynamic `GROUP BY` columns are selected exclusively from the validated `service`/`level` allow-list. All user-supplied values are parameterized.
+
+## Attribute storage strategy
+
+Attributes are stored as a PostgreSQL `jsonb` column. This provides:
+
+- Schema-free storage of arbitrary key-value pairs per log entry.
+- Efficient equality lookups via the `->>` operator, which extracts a JSON key's value as text.
+- The API spec requires `attr.<key>` filters to be compared as strings, so `Attributes ->> key = $parameter` provides the exact required semantics without type-coercion surprises.
+
+**Trade-off:** `jsonb` attribute equality requires a sequential scan of the `Attributes` column for each `attr.<key>` filter (no GIN index is used). This is acceptable for the current scale; at higher volumes, a GIN index on `Attributes` or a materialized attributes table would improve filtered-query performance.
+
+## Retention strategy
+
+Logs are retained for a configurable number of days (default 30). A background service runs daily at a configured UTC time (default 02:00) and deletes expired rows in batches.
+
+```json
+"Retention": {
+  "RetentionDays": 30,
+  "RunAtUtc": "02:00:00",
+  "DeleteBatchSize": 10000
+}
+```
+
+Each batch uses `DELETE ... WHERE Id IN (SELECT ... LIMIT)` to avoid long-running locks. The batch size is configurable (default 10,000). Configuration can be overridden via environment variables, for example `Retention__RetentionDays=14`.
+
+## Ingestion pipeline
 
 ```text
 HTTP POST /logs
-  -> validate and map each entry once
-  -> bounded in-process channel
+  -> validate and map each entry (single pass)
+  -> bounded in-process channel (back-pressure when full)
   -> concurrent batch writers
   -> PostgreSQL binary COPY
 
@@ -116,97 +198,37 @@ HTTP GET /logs or /logs/aggregate
 
 The bounded in-process channel separates request acceptance from database persistence while applying back-pressure when it reaches capacity. PostgreSQL remains the system of record for all log writes and reads. Because the buffer is process-local, accepted logs waiting in it are not durable until their batch has been written to PostgreSQL.
 
-### Ingestion configuration
+### Configuration
 
 ```json
 "Ingestion": {
-  "ChannelCapacity": 20000,
+  "ChannelCapacity": 50000,
   "MaxBatchSize": 2000,
   "FlushIntervalMs": 50,
-  "WriterConcurrency": 2
+  "WriterConcurrency": 3
 }
 ```
 
-`ChannelCapacity` limits the number of logs held in memory. `MaxBatchSize` and `FlushIntervalMs` control when a PostgreSQL binary `COPY` operation is flushed. `WriterConcurrency` controls the number of concurrent batch writers.
+| Setting | Default | Description |
+|---|---|---|
+| `ChannelCapacity` | 50000 | Max in-flight logs buffered in memory before back-pressure |
+| `MaxBatchSize` | 2000 | Max rows per PostgreSQL binary `COPY` call |
+| `FlushIntervalMs` | 50 | How long a writer waits to fill a batch before flushing early |
+| `WriterConcurrency` | 3 | Number of concurrent background writers draining the channel |
 
-### Schema and indexes
+## Performance results
 
-The `log` table stores `Id` (identity key), `Timestamp` (`timestamptz`), `Level`, `Service`, `Message`, and nullable `Attributes` (`jsonb`).
+*To be filled in after load testing.*
 
-`jsonb` supports arbitrary attribute keys while `Attributes ->> key` supplies the required string-based equality semantics for `attr.<key>` filters.
+## Known limitations
 
-Indexes:
+- **No durability for in-flight logs:** Accepted logs buffered in the in-process channel are lost if the process crashes before the batch is written to PostgreSQL.
+- **No authentication:** The API is open by default. Authentication can be enabled via environment configuration (see Optional Features below).
+- **Attribute query performance:** `attr.<key>` filters use sequential `jsonb` scans. No GIN index is maintained on the `Attributes` column, so filtered queries slow down as the attribute cardinality or row count grows.
+- **Message search performance:** The `q` parameter uses `ILIKE '%pattern%'`, which cannot use indexes and performs a sequential scan of the `Message` column.
+- **No retry on batch write failure:** If a PostgreSQL `COPY` batch fails, the batch is logged and dropped. Failed logs are not retried or persisted to a dead-letter queue.
+- **Single retention schedule:** Only one daily retention run is supported. There is no way to trigger ad-hoc retention from the API.
 
-- `(Timestamp DESC, Id DESC)` supports chronological reads and deterministic cursor pagination.
-- `(Service ASC, Timestamp DESC, Id DESC)` supports service-filtered reads.
+## Optional features
 
-Aggregation is executed in PostgreSQL with `date_bin`. Dynamic group columns are selected exclusively from the validated `service`/`level` allow-list; all user-supplied values are SQL parameters.
-
-### Retention
-
-Retention defaults to 30 days and runs daily at 02:00 UTC:
-
-```json
-"Retention": {
-  "RetentionDays": 30,
-  "RunAtUtc": "02:00:00",
-  "DeleteBatchSize": 10000
-}
-```
-
-The retention worker deletes rows older than the configured cutoff in batches of 10,000. Batching prevents one long-running delete from creating excessive lock pressure or interrupting ingestion. Configuration can be overridden through environment variables, for example `Retention__RetentionDays=14`.
-
-## Performance report
-
-### Test environment
-
-- Local Docker Compose on Windows.
-- API: 0.5 CPU, 256 MiB memory limit.
-- PostgreSQL 17: 1 CPU, 1 GiB memory limit.
-- Load generator: local k6 using `LoadTest/ingest_k6.js` and its `ramping-arrival-rate` scenario.
-
-### Dataset and workload
-
-- Batch size: 150 logs/request.
-- Each generated log: UTC timestamp, `info`, `loadtest`, a synthetic message, and `host`, `index`, and `rnd` attributes.
-- The aggregate verification window contained 600 persisted logs. The visible query sample contained IDs near 9.1 million; an exact database row count was not recorded.
-
-### Ingestion results
-
-| Peak configured rate | Batch size | Completed requests | Error rate | HTTP p90 | HTTP p95 | Max latency | Whole-run average |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 30,000 logs/s (200 req/s) | 150 | 6,864 | 0% | 597.49 ms | 698.71 ms | 1.08 s | 13,728 logs/s |
-| 40,000 logs/s (267 req/s) | 150 | 9,144 | 0% | 1.19 s | 1.41 s | 2.10 s | 18,269 logs/s |
-
-The k6 scenario ramps during its final 35 seconds, from 50% to 100% of the target. The configured values are therefore peak arrival rates, not sustained throughput measurements. Both runs completed without failed HTTP requests and met the script’s p95 threshold of under two seconds.
-
-### Query and aggregation results
-
-Functional aggregation was verified against a two-second load-generator window:
-
-- Unfiltered aggregation returned 600 logs.
-- Combined `service`, `level`, and `attr.host` filters returned 600 logs.
-- Grouping returned `loadtest: 600` and `info: 600`.
-- Exact `attr.index` and message-substring filters each returned one log.
-
-The recorded p90/p95/max figures in the ingestion-results table apply to the `POST /logs` workload. A dedicated query benchmark was not part of these two runs.
-
-### Resource usage
-
-The container limits above were enforced. CPU, memory, ingestion-buffer depth, and PostgreSQL I/O/cache metrics were not captured during these runs, so no observed resource-use values are claimed.
-
-### Bottlenecks discovered
-
-- Ingestion p95 rose from 698.71 ms at the lower target to 1.41 s at the higher target, which indicates growing back-pressure in the HTTP → ingestion buffer → PostgreSQL path.
-- The benchmark ramps rather than holds a rate, preventing a sustained-capacity conclusion.
-- Arbitrary JSON-attribute filters and `%substring%` message searches have no specialized indexes yet and are expected to be the primary query bottlenecks at larger datasets.
-
-### Optimizations applied
-
-- PostgreSQL binary `COPY` through Npgsql instead of EF Core per-entity inserts.
-- A bounded in-process ingestion buffer with two concurrent batch writers.
-- Single-pass ingestion validation/mapping: one timestamp parse, UTC normalization, and no FluentValidation-result allocation per log.
-- 4 MiB request-size bound for the API memory budget.
-- Composite indexes aligned with chronological and service-scoped cursor queries.
-- PostgreSQL-side `date_bin` aggregation, parameterized queries, async I/O, and forward-only readers.
-- Batched daily retention cleanup.
+- **Authentication:** Not implemented by default. Set the `AUTH_ENABLED=true` environment variable to enable it. When enabled, the `LOADGEN_API_KEY` environment variable provides the expected API key for the load generator.
