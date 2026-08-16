@@ -1,0 +1,4 @@
+Seed the table:
+k6 run .\seed-history.js -e BASE_URL=http://localhost:8080 -e TOTAL_ROWS=1000000 -e HISTORY_DAYS=30
+Run test against the table:
+k6 run .\performance.js -e BASE_URL=http://localhost:8080 -e SCENARIO=load -e HISTORY_DAYS=30 -e READ_AFTER_WRITE_WINDOW_SEC=20
