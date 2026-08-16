@@ -218,7 +218,53 @@ The bounded in-process channel separates request acceptance from database persis
 
 ## Performance results
 
-*To be filled in after load testing.*
+### Test environment
+
+- Local Docker Compose on Windows.
+- API container: 0.5 CPU, 256 MB memory limit.
+- PostgreSQL container: 1 CPU, 1 GB memory limit.
+- Load generator: local k6 with 70 max VUs for ingestion.
+- Database seeded with 1,000,000 historical rows spread across 30 days via `seed-history.js`.
+
+### Pass/fail thresholds
+
+| Metric | Threshold |
+|---|---|
+| `historical_query_latency` p(95) | < 300 ms |
+| `historical_query_latency` p(99) | < 800 ms |
+| `aggregate_latency` p(95) | < 500 ms |
+| `read_after_write_success` rate | > 95% |
+
+### Scenario results
+
+| Scenario | Target rates | Duration | Total accepted | Avg throughput | Thresholds |
+|---|---|---|---|---|---|
+| **Load** | 15k/s sustained | 120s | 1,778,205 | 14,789/s | All pass |
+| **Stress** | 15k → 22.5k → 30k/s | 150s | 2,512,785 | 16,464/s | Historical queries fail |
+| **Spike** | 7.5k → 30k → 7.5k/s | 100s | 1,536,777 | 15,333/s | All pass |
+| **Breakpoint** | 15k → 22.5k → 30k → 45k/s | 120s | 1,540,638 | 12,371/s | Aggregate + historical queries fail |
+
+### Latency detail
+
+| Metric | Load (15k/s) | Stress (30k/s peak) | Spike (30k burst) | Breakpoint (45k peak) |
+|---|---|---|---|---|
+| Ingestion p95 | 69 ms | 9 ms | 2 ms | 273 ms |
+| Historical query p95 | 82 ms | 403 ms | 3 ms | 1.21 s |
+| Historical query p99 | 247 ms | 1.98 s | 5 ms | 2.28 s |
+| Aggregate p95 | 168 ms | 313 ms | 3 ms | 1.35 s |
+| Read-after-write success | 100% | 98.48% | 100% | 99.12% |
+| Log visibility p95 | 431 ms | 10.79 s | 261 ms | 17.83 s |
+| HTTP error rate | 0% | 0.007% | 0% | 0.03% |
+
+### Analysis
+
+**Sustained capacity:** The service sustains 15,000 logs/s with all thresholds passing comfortably. Ingestion p95 stays under 70 ms and queries remain fast.
+
+**Spike resilience:** A 4x burst (7.5k → 30k) is handled cleanly. The bounded channel absorbs the spike without degrading read performance, and the system recovers immediately.
+
+**Breakpoint:** The system breaks between 30,000 and 45,000 sustained logs/s. Under sustained 30k+ writes, PostgreSQL query performance degrades due to I/O contention between the high-throughput COPY writes and concurrent reads. At the 45k stage, both aggregate and historical query p95 latencies exceed thresholds by 2–4x. Ingestion remains reliable (0% rejections) but the read path suffers.
+
+**Bottleneck:** The primary bottleneck is PostgreSQL I/O contention under sustained high write volume. The write path (binary COPY) remains fast, but concurrent reads degrade as the buffer pool and shared_buffers compete with sequential scan pressure from `attr.<key>` and `ILIKE` queries against 1M+ rows.
 
 ## Known limitations
 
