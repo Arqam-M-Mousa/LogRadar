@@ -1,4 +1,4 @@
-﻿using LogRadar.Application.Abstractions;
+﻿using LogRadar.Infrastructure.Abstractions;
 using LogRadar.Infrastructure.Ingestion;
 using LogRadar.Infrastructure.Persistence;
 using LogRadar.Infrastructure.Persistence.Queries;

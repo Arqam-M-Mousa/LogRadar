@@ -1,6 +1,6 @@
-﻿using LogRadar.Application.Contracts;
+using LogRadar.Infrastructure.Contracts;
 
-namespace LogRadar.Application.Abstractions;
+namespace LogRadar.Infrastructure.Abstractions;
 
 public interface ILogIngestionWriter
 {

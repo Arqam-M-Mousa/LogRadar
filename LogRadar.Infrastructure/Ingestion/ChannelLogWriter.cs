@@ -1,5 +1,5 @@
-﻿using LogRadar.Application.Abstractions;
-using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Abstractions;
+using LogRadar.Infrastructure.Contracts;
 
 namespace LogRadar.Infrastructure.Ingestion;
 

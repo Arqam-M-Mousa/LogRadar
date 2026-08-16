@@ -1,4 +1,4 @@
-﻿using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Contracts;
 
 namespace LogRadar.API.Contracts.Logs.LogIngest;
 

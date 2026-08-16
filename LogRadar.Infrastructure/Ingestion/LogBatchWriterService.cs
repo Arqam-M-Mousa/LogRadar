@@ -1,4 +1,4 @@
-﻿using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Contracts;
 using LogRadar.Infrastructure.Persistence.Writers;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

@@ -1,5 +1,5 @@
-﻿using LogRadar.Application.Abstractions;
-using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Abstractions;
+using LogRadar.Infrastructure.Contracts;
 using Npgsql;
 using NpgsqlTypes;
 using System.Text;

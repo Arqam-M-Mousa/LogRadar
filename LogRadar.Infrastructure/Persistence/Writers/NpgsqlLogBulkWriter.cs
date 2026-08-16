@@ -1,4 +1,4 @@
-﻿using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Contracts;
 using Npgsql;
 
 namespace LogRadar.Infrastructure.Persistence.Writers;

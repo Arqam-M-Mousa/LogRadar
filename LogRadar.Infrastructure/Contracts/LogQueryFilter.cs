@@ -1,4 +1,4 @@
-﻿namespace LogRadar.Application.Contracts;
+namespace LogRadar.Infrastructure.Contracts;
 
 public sealed record LogQueryFilter(
     string? Service,

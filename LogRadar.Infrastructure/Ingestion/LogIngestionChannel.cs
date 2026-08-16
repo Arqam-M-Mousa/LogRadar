@@ -1,4 +1,4 @@
-﻿using LogRadar.Application.Contracts;
+﻿using LogRadar.Infrastructure.Contracts;
 using Microsoft.Extensions.Options;
 using System.Threading.Channels;
 

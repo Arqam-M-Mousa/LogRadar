@@ -2,8 +2,8 @@
 using LogRadar.API.Contracts.Logs.LogAggregate;
 using LogRadar.API.Contracts.Logs.LogIngest;
 using LogRadar.API.Contracts.Logs.LogQuery;
-using LogRadar.Application.Abstractions;
-using LogRadar.Application.Contracts;
+using LogRadar.Infrastructure.Abstractions;
+using LogRadar.Infrastructure.Contracts;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LogRadar.API.Controllers;
