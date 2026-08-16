@@ -1,6 +1,0 @@
-@LogRadar.API_HostAddress = http://localhost:5142
-
-GET {{LogRadar.API_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
