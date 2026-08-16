@@ -17,7 +17,6 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["LogRadar.API/LogRadar.API.csproj", "LogRadar.API/"]
-COPY ["LogRadar.Application/LogRadar.Application.csproj", "LogRadar.Application/"]
 COPY ["LogRadar.Domain/LogRadar.Domain.csproj", "LogRadar.Domain/"]
 COPY ["LogRadar.Infrastructure/LogRadar.Infrastructure.csproj", "LogRadar.Infrastructure/"]
 RUN dotnet restore "./LogRadar.API/LogRadar.API.csproj"
