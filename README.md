@@ -274,7 +274,3 @@ The bounded in-process channel separates request acceptance from database persis
 - **Message search performance:** The `q` parameter uses `ILIKE '%pattern%'`, which cannot use indexes and performs a sequential scan of the `Message` column.
 - **No retry on batch write failure:** If a PostgreSQL `COPY` batch fails, the batch is logged and dropped. Failed logs are not retried or persisted to a dead-letter queue.
 - **Single retention schedule:** Only one daily retention run is supported. There is no way to trigger ad-hoc retention from the API.
-
-## Optional features
-
-- **Authentication:** Not implemented by default. Set the `AUTH_ENABLED=true` environment variable to enable it. When enabled, the `LOADGEN_API_KEY` environment variable provides the expected API key for the load generator.
