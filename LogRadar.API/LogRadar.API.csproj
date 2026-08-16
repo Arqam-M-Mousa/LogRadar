@@ -7,9 +7,6 @@
     <UserSecretsId>5b3912cf-2e1c-4a92-a6ed-9b099edb8718</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerComposeProjectPath>..\docker-compose.dcproj</DockerComposeProjectPath>
-
-	<ServerGarbageCollection>false</ServerGarbageCollection>
-	<ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

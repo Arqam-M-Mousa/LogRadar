@@ -14,14 +14,18 @@ public class LogsController : ControllerBase
 {
     private readonly IValidator<QueryLogsRequest> _queryValidator;
     private readonly IValidator<AggregateLogsRequest> _aggregateValidator;
-    private readonly ILogBatchPublisher _publisher;
+    private readonly ILogIngestionWriter _ingestionWriter;
     private readonly ILogQueryService _queryService;
 
-    public LogsController(IValidator<QueryLogsRequest> queryValidator, IValidator<AggregateLogsRequest> aggregateValidator, ILogBatchPublisher publisher, ILogQueryService queryService)
+    public LogsController(
+        IValidator<QueryLogsRequest> queryValidator,
+        IValidator<AggregateLogsRequest> aggregateValidator,
+        ILogIngestionWriter ingestionWriter,
+        ILogQueryService queryService)
     {
         _queryValidator = queryValidator;
         _aggregateValidator = aggregateValidator;
-        _publisher = publisher;
+        _ingestionWriter = ingestionWriter;
         _queryService = queryService;
     }
 
@@ -61,9 +65,8 @@ public class LogsController : ControllerBase
 
         if (validLogs.Count > 0)
         {
-            var batch = new LogIngestedBatch(validLogs);
-
-            await _publisher.PublishAsync(batch, cancellationToken);
+            foreach (var log in validLogs)
+                await _ingestionWriter.WriteAsync(log, cancellationToken);
         }
 
         var response = new IngestLogsResponse
@@ -118,5 +121,4 @@ public class LogsController : ControllerBase
 
         return Ok(result.ToAggregateLogsResponse());
     }
-
 }

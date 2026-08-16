@@ -1,10 +1,9 @@
 ﻿using LogRadar.Application.Abstractions;
-using LogRadar.Infrastructure.Messaging;
+using LogRadar.Infrastructure.Ingestion;
 using LogRadar.Infrastructure.Persistence;
 using LogRadar.Infrastructure.Persistence.Queries;
 using LogRadar.Infrastructure.Persistence.Writers;
 using LogRadar.Infrastructure.Retention;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,56 +17,35 @@ public static class DependencyInjection
     {
         services.AddDbConfig(configuration);
         services.AddNpgsqlDataSource(configuration.GetConnectionString("DefaultConnection")!);
-        services.AddScoped<NpgsqlLogBulkWriter>();
+        services.AddSingleton<NpgsqlLogBulkWriter>();
         services.AddScoped<ILogQueryService, NpgsqlLogQueryService>();
         services.Configure<RetentionOptions>(options =>
             configuration.GetSection(RetentionOptions.SectionName).Bind(options));
         services.AddHostedService<LogRetentionService>();
-        services.AddLogRadarMessaging(configuration);
+        services.AddLogRadarIngestion(configuration);
         services.AddHealthChecks()
             .AddDbContextCheck<LogRadarDbContext>();
 
         return services;
     }
 
-    private static IServiceCollection AddLogRadarMessaging(
+    private static IServiceCollection AddLogRadarIngestion(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var rabbitMqOptions = configuration
-            .GetSection(RabbitMqOptions.SectionName)
-            .Get<RabbitMqOptions>() ?? new RabbitMqOptions();
+        services.Configure<IngestionOptions>(options =>
+            configuration.GetSection(IngestionOptions.SectionName).Bind(options));
 
-        services.AddMassTransit(busConfig =>
-        {
-            busConfig.AddConsumer<LogBatchConsumer>();
-
-            busConfig.UsingRabbitMq((context, cfg) =>
-            {
-                cfg.Host(rabbitMqOptions.Host, "/", h =>
-                {
-                    h.Username(rabbitMqOptions.Username);
-                    h.Password(rabbitMqOptions.Password);
-                });
-
-                cfg.ReceiveEndpoint("log-batch-consumer", e =>
-                {
-                    e.PrefetchCount = 36;
-                    e.ConcurrentMessageLimit = 12;
-
-                    e.ConfigureConsumer<LogBatchConsumer>(context);
-                });
-            });
-        });
-
-        services.AddScoped<ILogBatchPublisher, MassTransitLogBatchPublisher>();
+        services.AddSingleton<LogIngestionChannel>();
+        services.AddSingleton<ILogIngestionWriter, ChannelLogWriter>();
+        services.AddHostedService<LogBatchWriterService>();
 
         return services;
     }
 
     private static IServiceCollection AddDbConfig(
-    this IServiceCollection services,
-    IConfiguration configuration)
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
         services.AddDbContext<LogRadarDbContext>(options =>
         {
@@ -77,6 +55,4 @@ public static class DependencyInjection
 
         return services;
     }
-
-
 }

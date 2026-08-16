@@ -1,11 +1,8 @@
 using LogRadar.API;
 using LogRadar.Infrastructure;
 using LogRadar.Infrastructure.Extensions;
-using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
-
-NpgsqlConnection.GlobalTypeMapper.EnableDynamicJson();
 
 // Add services to the container.
 builder.Services.AddApi();
