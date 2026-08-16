@@ -1,7 +1,8 @@
-﻿using LogRadar.Infrastructure.Abstractions;
-using LogRadar.Infrastructure.Contracts;
+using LogRadar.Infrastructure.Abstractions;
+using LogRadar.Infrastructure.Ingestion;
+using LogRadar.Infrastructure.Models;
 
-namespace LogRadar.Infrastructure.Ingestion;
+namespace LogRadar.Infrastructure.Services;
 
 public sealed class ChannelLogWriter : ILogIngestionWriter
 {

@@ -1,11 +1,11 @@
-﻿using LogRadar.Infrastructure.Abstractions;
-using LogRadar.Infrastructure.Contracts;
+using LogRadar.Infrastructure.Abstractions;
+using LogRadar.Infrastructure.Models;
 using Npgsql;
 using NpgsqlTypes;
 using System.Text;
 using System.Text.Json;
 
-namespace LogRadar.Infrastructure.Persistence.Queries;
+namespace LogRadar.Infrastructure.Services;
 
 public sealed class NpgsqlLogQueryService : ILogQueryService
 {
@@ -66,8 +66,6 @@ public sealed class NpgsqlLogQueryService : ILogQueryService
 
         foreach (var (key, value) in filter.AttributeFilters)
         {
-            // jsonb ->> extracts the value as text, matching the spec's
-            // "compared as strings" requirement for attr.<key> filters.
             var keyName = NextParamName();
             var valueName = NextParamName();
 

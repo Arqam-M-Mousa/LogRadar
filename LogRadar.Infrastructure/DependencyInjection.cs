@@ -1,9 +1,9 @@
 ﻿using LogRadar.Infrastructure.Abstractions;
 using LogRadar.Infrastructure.Ingestion;
 using LogRadar.Infrastructure.Persistence;
-using LogRadar.Infrastructure.Persistence.Queries;
 using LogRadar.Infrastructure.Persistence.Writers;
 using LogRadar.Infrastructure.Retention;
+using LogRadar.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,5 +54,12 @@ public static class DependencyInjection
         });
 
         return services;
+    }
+
+    public static async Task ApplyDatabaseMigrationsAsync(this IServiceProvider serviceProvider)
+    {
+        using var scope = serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<LogRadarDbContext>();
+        await dbContext.Database.MigrateAsync();
     }
 }

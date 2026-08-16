@@ -1,4 +1,4 @@
-using LogRadar.Infrastructure.Contracts;
+using LogRadar.Infrastructure.Models;
 
 namespace LogRadar.Infrastructure.Abstractions;
 

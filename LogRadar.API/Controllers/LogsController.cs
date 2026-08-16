@@ -1,9 +1,7 @@
 ﻿using FluentValidation;
-using LogRadar.API.Contracts.Logs.LogAggregate;
-using LogRadar.API.Contracts.Logs.LogIngest;
-using LogRadar.API.Contracts.Logs.LogQuery;
+using LogRadar.API.Contracts.Logs;
 using LogRadar.Infrastructure.Abstractions;
-using LogRadar.Infrastructure.Contracts;
+using LogRadar.Infrastructure.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LogRadar.API.Controllers;

@@ -1,6 +1,7 @@
-﻿using LogRadar.Infrastructure.Contracts;
+using LogRadar.Infrastructure.Models;
+using System.Text.Json;
 
-namespace LogRadar.API.Contracts.Logs.LogIngest;
+namespace LogRadar.API.Contracts.Logs;
 
 public static class LogInputMapper
 {
@@ -64,7 +65,7 @@ public static class LogInputMapper
 
         if (input.Attributes is { } attributesElement)
         {
-            if (attributesElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            if (attributesElement.ValueKind != JsonValueKind.Object)
             {
                 rejectionReason = "attributes must be a flat object with string, number, or boolean values";
                 return false;
@@ -109,20 +110,20 @@ public static class LogInputMapper
         return true;
     }
 
-    private static bool TryGetAttributeValue(System.Text.Json.JsonElement element, out object value)
+    private static bool TryGetAttributeValue(JsonElement element, out object value)
     {
         switch (element.ValueKind)
         {
-            case System.Text.Json.JsonValueKind.String:
+            case JsonValueKind.String:
                 value = element.GetString()!;
                 return true;
-            case System.Text.Json.JsonValueKind.Number:
+            case JsonValueKind.Number:
                 value = GetNumber(element);
                 return true;
-            case System.Text.Json.JsonValueKind.True:
+            case JsonValueKind.True:
                 value = true;
                 return true;
-            case System.Text.Json.JsonValueKind.False:
+            case JsonValueKind.False:
                 value = false;
                 return true;
             default:
@@ -131,7 +132,7 @@ public static class LogInputMapper
         }
     }
 
-    private static object GetNumber(System.Text.Json.JsonElement value)
+    private static object GetNumber(JsonElement value)
     {
         if (value.TryGetInt64(out var integer))
             return integer;
@@ -141,4 +142,30 @@ public static class LogInputMapper
 
         return value.GetDouble();
     }
+}
+
+public sealed class IngestLogsRequest
+{
+    public List<LogInput>? Logs { get; init; } = [];
+}
+
+public sealed class LogInput
+{
+    public string? Timestamp { get; init; }
+    public string? Level { get; init; }
+    public string? Service { get; init; }
+    public string? Message { get; init; }
+    public JsonElement? Attributes { get; init; }
+}
+
+public sealed class IngestLogsResponse
+{
+    public int Accepted { get; init; }
+    public List<RejectedLog> Rejected { get; init; } = [];
+}
+
+public sealed class RejectedLog
+{
+    public int Index { get; init; }
+    public string Reason { get; init; } = string.Empty;
 }
