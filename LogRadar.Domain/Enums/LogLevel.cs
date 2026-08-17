@@ -1,5 +1,4 @@
 ﻿namespace LogRadar.Domain.Enums;
-
 public enum LogLevel
 {
     Debug,
