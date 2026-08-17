@@ -1,5 +1,6 @@
 using LogRadar.Infrastructure.Models;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace LogRadar.API.Contracts.Logs;
 
@@ -63,7 +64,7 @@ public static class LogInputMapper
 
         Dictionary<string, object>? attributes = null;
 
-        if (input.Attributes is { } attributesElement)
+        if (input.Attributes is { } attributesElement && attributesElement.ValueKind != JsonValueKind.Null)
         {
             if (attributesElement.ValueKind != JsonValueKind.Object)
             {
@@ -151,9 +152,16 @@ public sealed class IngestLogsRequest
 
 public sealed class LogInput
 {
+    [JsonConverter(typeof(LenientStringJsonConverter))]
     public string? Timestamp { get; init; }
+
+    [JsonConverter(typeof(LenientStringJsonConverter))]
     public string? Level { get; init; }
+
+    [JsonConverter(typeof(LenientStringJsonConverter))]
     public string? Service { get; init; }
+
+    [JsonConverter(typeof(LenientStringJsonConverter))]
     public string? Message { get; init; }
     public JsonElement? Attributes { get; init; }
 }
