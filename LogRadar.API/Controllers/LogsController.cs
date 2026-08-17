@@ -65,6 +65,8 @@ public class LogsController : ControllerBase
         {
             foreach (var log in validLogs)
                 await _ingestionWriter.WriteAsync(log, cancellationToken);
+
+            await _ingestionWriter.FlushAsync(cancellationToken);
         }
 
         var response = new IngestLogsResponse

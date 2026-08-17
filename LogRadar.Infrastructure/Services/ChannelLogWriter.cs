@@ -15,4 +15,7 @@ public sealed class ChannelLogWriter : ILogIngestionWriter
 
     public ValueTask WriteAsync(LogMessage log, CancellationToken cancellationToken) =>
         _channel.Writer.WriteAsync(log, cancellationToken);
+
+    public Task FlushAsync(CancellationToken cancellationToken) =>
+        _channel.FlushAsync(cancellationToken);
 }

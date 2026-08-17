@@ -43,6 +43,7 @@ public sealed class LogBatchWriterService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            _channel.CompletePendingFlushes();
             buffer.Clear();
 
             bool canRead;
@@ -102,6 +103,7 @@ public sealed class LogBatchWriterService : BackgroundService
             try
             {
                 await _bulkWriter.WriteAsync(buffer, stoppingToken);
+                _channel.CompletePendingFlushes();
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
