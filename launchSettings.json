@@ -6,7 +6,7 @@
       "composeLaunchAction": "None",
       "composeLaunchServiceName": "logradar.api",
       "serviceActions": {
-        "logradar.api": "StartDebugging",
+        "app": "StartDebugging",
         "postgres": "StartWithoutDebugging"
       }
     }

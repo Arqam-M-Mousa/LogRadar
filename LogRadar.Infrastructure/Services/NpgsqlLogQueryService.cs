@@ -185,9 +185,9 @@ public sealed class NpgsqlLogQueryService : ILogQueryService
         if (groupColumn is not null)
             sql.Append(", 2");
 
-        sql.Append(" ORDER BY 1 ASC");
-        if (groupColumn is not null)
-            sql.Append(", 2 ASC");
+        //sql.Append(" ORDER BY 1 ASC");
+        //if (groupColumn is not null)
+        //    sql.Append(", 2 ASC");
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql.ToString(), connection);
@@ -202,6 +202,17 @@ public sealed class NpgsqlLogQueryService : ILogQueryService
                 await reader.IsDBNullAsync(1, cancellationToken) ? null : reader.GetString(1),
                 reader.GetInt64(2)));
         }
+
+        buckets.Sort(static (a, b) =>
+        {
+            var result = a.Start.CompareTo(b.Start);
+
+            if (result != 0)
+                return result;
+
+            return string.CompareOrdinal(a.Group, b.Group);
+        });
+
 
         return new LogAggregationResult(buckets);
     }
