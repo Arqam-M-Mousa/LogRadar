@@ -1,24 +1,22 @@
 services:
-  logradar.api:
-    image: logradarapi
+  app:
     build:
       context: .
       dockerfile: LogRadar.API/Dockerfile
     restart: unless-stopped
     environment:
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres;Maximum Pool Size=50;Minimum Pool Size=5;Timeout=20;Command Timeout=30
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || curl -f http://localhost:8080/health"]
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -46,6 +44,34 @@ services:
         limits:
           cpus: '1.00'
           memory: 1024M
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=700MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - synchronous_commit=off
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - autovacuum_naptime=5s
+      - -c
+      - autovacuum_vacuum_cost_limit=2000
+      - -c
+      - autovacuum_vacuum_scale_factor=0.01
+      - -c
+      - autovacuum_analyze_scale_factor=0.02
+      - -c
+      - random_page_cost=1.1
 
 volumes:
   postgres_data:
