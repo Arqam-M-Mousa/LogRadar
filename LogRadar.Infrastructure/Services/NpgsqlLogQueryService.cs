@@ -10,10 +10,12 @@ namespace LogRadar.Infrastructure.Services;
 public sealed class NpgsqlLogQueryService : ILogQueryService
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly AggregationCache _cache;
 
-    public NpgsqlLogQueryService(NpgsqlDataSource dataSource)
+    public NpgsqlLogQueryService(NpgsqlDataSource dataSource, AggregationCache cache)
     {
         _dataSource = dataSource;
+        _cache = cache;
     }
 
     public async Task<LogQueryResult> QueryAsync(
@@ -126,6 +128,13 @@ public sealed class NpgsqlLogQueryService : ILogQueryService
     }
 
     public async Task<LogAggregationResult> AggregateAsync(
+        LogAggregationFilter filter,
+        CancellationToken cancellationToken)
+    {
+        return await _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
+    }
+
+    private async Task<LogAggregationResult> ExecuteAggregateAsync(
         LogAggregationFilter filter,
         CancellationToken cancellationToken)
     {

@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.AddDbConfig(configuration);
         services.AddNpgsqlDataSource(configuration.GetConnectionString("DefaultConnection")!);
         services.AddSingleton<NpgsqlLogBulkWriter>();
+        services.AddSingleton(new AggregationCache(TimeSpan.FromSeconds(5)));
         services.AddScoped<ILogQueryService, NpgsqlLogQueryService>();
         services.Configure<RetentionOptions>(options =>
             configuration.GetSection(RetentionOptions.SectionName).Bind(options));
