@@ -1,56 +1,15 @@
-using LogRadar.Infrastructure.Models;
+using LogRadar.Domain.Query;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
-namespace LogRadar.API.Contracts.Logs;
-
-public sealed class QueryLogsRequest
-{
-    public string? Service { get; init; }
-    public string? Level { get; init; }
-    public string? Since { get; init; }
-    public string? Until { get; init; }
-    public string? Q { get; init; }
-    public string? Limit { get; init; }
-    public string? Cursor { get; init; }
-}
-
-public sealed class QueryLogsResponse
-{
-    [JsonPropertyName("logs")]
-    public required List<QueryLogResultItem> Logs { get; init; }
-
-    [JsonPropertyName("next_cursor")]
-    public string? NextCursor { get; init; }
-}
-
-public sealed class QueryLogResultItem
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("timestamp")]
-    public required DateTimeOffset Timestamp { get; init; }
-
-    [JsonPropertyName("level")]
-    public required string Level { get; init; }
-
-    [JsonPropertyName("service")]
-    public required string Service { get; init; }
-
-    [JsonPropertyName("message")]
-    public required string Message { get; init; }
-
-    [JsonPropertyName("attributes")]
-    public Dictionary<string, object>? Attributes { get; init; }
-}
+namespace LogRadar.API.Contracts.Query;
+  
 
 public static class QueryLogsMappings
 {
     private const string AttributePrefix = "attr.";
 
-    public static LogQueryFilter ToLogQueryFilter(this QueryLogsRequest request, IQueryCollection query)
+    public static LogQueryFilter ToFilter(this QueryLogsRequest request, IQueryCollection query)
     {
         LogCursor.TryDecode(request.Cursor, out var cursor);
 
@@ -73,9 +32,9 @@ public static class QueryLogsMappings
             cursor?.Id);
     }
 
-    public static QueryLogsResponse ToQueryLogsResponse(this LogQueryResult result)
+    public static QueryLogsResponse ToResponse(this LogQueryResult result)
     {
-        var logs = result.Logs.Select(log => new QueryLogResultItem
+        var logs = result.Logs.Select(log => new QueryLogItem
         {
             Id = log.Id.ToString(),
             Timestamp = log.Timestamp,

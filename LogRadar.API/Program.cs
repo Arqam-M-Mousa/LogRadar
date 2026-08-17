@@ -1,5 +1,5 @@
 using FluentValidation;
-using LogRadar.API.Contracts.Logs;
+using LogRadar.API.Contracts.Aggregation;
 using LogRadar.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);

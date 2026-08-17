@@ -1,21 +1,21 @@
-using LogRadar.Infrastructure.Models;
+using LogRadar.Domain.Ingestion;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
-namespace LogRadar.API.Contracts.Logs;
+namespace LogRadar.API.Contracts.Ingestion;
+  
 
 public static class LogInputMapper
 {
     private static readonly HashSet<string> AllowedLevels =
-    ["debug", "info", "warn", "error"];
+        ["debug", "info", "warn", "error"];
 
-    public static bool TryToLogMessage(
+    public static bool TryMap(
         this LogInput? input,
         DateTimeOffset maximumAllowedTimestamp,
-        out LogMessage? logMessage,
+        out LogEntry? logEntry,
         out string? rejectionReason)
     {
-        logMessage = null;
+        logEntry = null;
         rejectionReason = null;
 
         if (input is null)
@@ -86,7 +86,7 @@ public static class LogInputMapper
             }
         }
 
-        logMessage = new LogMessage(
+        logEntry = new LogEntry(
             timestamp,
             input.Level!,
             input.Service!,
@@ -143,37 +143,4 @@ public static class LogInputMapper
 
         return value.GetDouble();
     }
-}
-
-public sealed class IngestLogsRequest
-{
-    public List<LogInput>? Logs { get; init; } = [];
-}
-
-public sealed class LogInput
-{
-    [JsonConverter(typeof(LenientStringJsonConverter))]
-    public string? Timestamp { get; init; }
-
-    [JsonConverter(typeof(LenientStringJsonConverter))]
-    public string? Level { get; init; }
-
-    [JsonConverter(typeof(LenientStringJsonConverter))]
-    public string? Service { get; init; }
-
-    [JsonConverter(typeof(LenientStringJsonConverter))]
-    public string? Message { get; init; }
-    public JsonElement? Attributes { get; init; }
-}
-
-public sealed class IngestLogsResponse
-{
-    public int Accepted { get; init; }
-    public List<RejectedLog> Rejected { get; init; } = [];
-}
-
-public sealed class RejectedLog
-{
-    public int Index { get; init; }
-    public string Reason { get; init; } = string.Empty;
 }
