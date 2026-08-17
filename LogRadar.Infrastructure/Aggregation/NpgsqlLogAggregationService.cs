@@ -1,0 +1,107 @@
+using LogRadar.Domain.Aggregation;
+using Npgsql;
+using NpgsqlTypes;
+using System.Text;
+
+namespace LogRadar.Infrastructure.Aggregation;
+  
+
+public sealed class NpgsqlLogAggregationService : ILogAggregationService
+{
+    private readonly NpgsqlDataSource _dataSource;
+    private readonly AggregationCache _cache;
+
+    public NpgsqlLogAggregationService(NpgsqlDataSource dataSource, AggregationCache cache)
+    {
+        _dataSource = dataSource;
+        _cache = cache;
+    }
+
+    public Task<LogAggregationResult> AggregateAsync(
+        LogAggregationFilter filter,
+        CancellationToken cancellationToken) =>
+        _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
+
+    private async Task<LogAggregationResult> ExecuteAggregateAsync(
+        LogAggregationFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var groupColumn = filter.GroupBy switch
+        {
+            "service" => "\"Service\"",
+            "level" => "\"Level\"",
+            _ => null
+        };
+
+        var sql = new StringBuilder(
+            "SELECT date_bin(@bucket::interval, \"Timestamp\", '2000-01-01T00:00:00Z'::timestamptz) AS \"Start\",");
+        sql.Append(groupColumn ?? "NULL::text").Append(" AS \"Group\", COUNT(*) AS \"Count\" ")
+           .Append("FROM log WHERE \"Timestamp\" >= @since AND \"Timestamp\" < @until");
+
+        var parameters = new List<NpgsqlParameter>
+        {
+            new("bucket", NpgsqlDbType.Varchar) { Value = filter.Bucket },
+            new("since", NpgsqlDbType.TimestampTz) { Value = filter.Since },
+            new("until", NpgsqlDbType.TimestampTz) { Value = filter.Until }
+        };
+        var paramIndex = 0;
+
+        string NextParamName() => $"p{paramIndex++}";
+
+        if (!string.IsNullOrWhiteSpace(filter.Service))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Service\" = @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = filter.Service });
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Level))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Level\" = @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = filter.Level });
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.MessageContains))
+        {
+            var name = NextParamName();
+            sql.Append(" AND \"Message\" ILIKE @").Append(name);
+            parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Varchar) { Value = $"%{filter.MessageContains}%" });
+        }
+
+        foreach (var (key, value) in filter.AttributeFilters)
+        {
+            var keyName = NextParamName();
+            var valueName = NextParamName();
+            sql.Append(" AND \"Attributes\" ->> @").Append(keyName).Append(" = @").Append(valueName);
+            parameters.Add(new NpgsqlParameter(keyName, NpgsqlDbType.Varchar) { Value = key });
+            parameters.Add(new NpgsqlParameter(valueName, NpgsqlDbType.Varchar) { Value = value });
+        }
+
+        sql.Append(" GROUP BY 1");
+        if (groupColumn is not null)
+            sql.Append(", 2");
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql.ToString(), connection);
+        command.Parameters.AddRange(parameters.ToArray());
+
+        var buckets = new List<LogAggregationBucket>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            buckets.Add(new LogAggregationBucket(
+                reader.GetFieldValue<DateTimeOffset>(0),
+                await reader.IsDBNullAsync(1, cancellationToken) ? null : reader.GetString(1),
+                reader.GetInt64(2)));
+        }
+
+        buckets.Sort(static (a, b) =>
+        {
+            var result = a.Start.CompareTo(b.Start);
+            return result != 0 ? result : string.CompareOrdinal(a.Group, b.Group);
+        });
+
+        return new LogAggregationResult(buckets);
+    }
+}

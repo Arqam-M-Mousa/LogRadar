@@ -1,7 +1,8 @@
-﻿using LogRadar.Infrastructure.Models;
+﻿using LogRadar.Domain.Ingestion;
 using Npgsql;
 
-namespace LogRadar.Infrastructure.Persistence.Writers;
+namespace LogRadar.Infrastructure.Ingestion;
+  
 
 public sealed class NpgsqlLogBulkWriter
 {
@@ -13,7 +14,7 @@ public sealed class NpgsqlLogBulkWriter
     }
 
     public async Task WriteAsync(
-        IReadOnlyList<LogMessage> logs,
+        IReadOnlyList<LogEntry> logs,
         CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);

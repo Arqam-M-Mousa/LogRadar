@@ -1,10 +1,10 @@
-﻿using LogRadar.Infrastructure.Models;
-using LogRadar.Infrastructure.Persistence.Writers;
+﻿using LogRadar.Domain.Ingestion;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace LogRadar.Infrastructure.Ingestion;
+  
 
 public sealed class LogBatchWriterService : BackgroundService
 {
@@ -39,7 +39,7 @@ public sealed class LogBatchWriterService : BackgroundService
         var reader = _channel.Reader;
         var maxBatchSize = Math.Max(1, _options.MaxBatchSize);
         var flushInterval = TimeSpan.FromMilliseconds(Math.Max(1, _options.FlushIntervalMs));
-        var buffer = new List<LogMessage>(maxBatchSize);
+        var buffer = new List<LogEntry>(maxBatchSize);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -57,7 +57,7 @@ public sealed class LogBatchWriterService : BackgroundService
             }
 
             if (!canRead)
-                return; // channel completed
+                return;
 
             while (buffer.Count < maxBatchSize && reader.TryRead(out var first))
                 buffer.Add(first);
@@ -77,7 +77,7 @@ public sealed class LogBatchWriterService : BackgroundService
                     var completed = await Task.WhenAny(waitTask, delayTask);
 
                     if (completed != waitTask)
-                        break; // flush interval elapsed, flush what we have
+                        break;
 
                     bool moreAvailable;
                     try
@@ -112,9 +112,6 @@ public sealed class LogBatchWriterService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to write batch of {Count} logs to PostgreSQL", buffer.Count);
-                // Batch is dropped here rather than retried in-process; if you need
-                // stronger durability guarantees, persist failed batches to a dead-letter
-                // table instead of only logging.
             }
         }
     }

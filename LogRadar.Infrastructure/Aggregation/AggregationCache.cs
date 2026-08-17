@@ -1,10 +1,10 @@
+using LogRadar.Domain.Aggregation;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using LogRadar.Infrastructure.Models;
 
-namespace LogRadar.Infrastructure.Services;
+namespace LogRadar.Infrastructure.Aggregation;
+  
 
 public sealed class AggregationCache
 {
