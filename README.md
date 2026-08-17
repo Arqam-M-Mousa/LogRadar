@@ -213,8 +213,8 @@ The bounded in-process channel separates request acceptance from database persis
 |---|---|---|
 | `ChannelCapacity` | 50000 | Max in-flight logs buffered in memory before back-pressure |
 | `MaxBatchSize` | 2000 | Max rows per PostgreSQL binary `COPY` call |
-| `FlushIntervalMs` | 50 | How long a writer waits to fill a batch before flushing early |
-| `WriterConcurrency` | 3 | Number of concurrent background writers draining the channel |
+| `FlushIntervalMs` | 10 | How long a writer waits to fill a batch before flushing early |
+| `WriterConcurrency` | 2 | Number of concurrent background writers draining the channel |
 
 ## Performance results
 
