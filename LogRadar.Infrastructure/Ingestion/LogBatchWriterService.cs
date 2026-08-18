@@ -1,4 +1,6 @@
 ﻿using LogRadar.Domain.Ingestion;
+using LogRadar.Infrastructure.Aggregation;
+using LogRadar.Infrastructure.Caching;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,17 +11,20 @@ public sealed class LogBatchWriterService : BackgroundService
 {
     private readonly LogIngestionChannel _channel;
     private readonly NpgsqlLogBulkWriter _bulkWriter;
+    private readonly IAggregateRollup _rollups;
     private readonly IngestionOptions _options;
     private readonly ILogger<LogBatchWriterService> _logger;
 
     public LogBatchWriterService(
         LogIngestionChannel channel,
         NpgsqlLogBulkWriter bulkWriter,
+        IAggregateRollup rollups,
         IOptions<IngestionOptions> options,
         ILogger<LogBatchWriterService> logger)
     {
         _channel = channel;
         _bulkWriter = bulkWriter;
+        _rollups = rollups;
         _options = options.Value;
         _logger = logger;
     }
@@ -132,6 +137,7 @@ public sealed class LogBatchWriterService : BackgroundService
             try
             {
                 await WriteWithRetryAsync(logBuffer, stoppingToken);
+                await _rollups.AddAsync(logBuffer, stoppingToken);
                 _channel.NotifyCommitted(startSequence, endSequence);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -1,8 +1,8 @@
 using LogRadar.Domain.Aggregation;
 
-namespace LogRadar.Infrastructure.Aggregation;
+namespace LogRadar.Infrastructure.Caching;
 
-public interface IAggregationCache
+public interface IAggregateCache
 {
     Task<LogAggregationResult> GetOrAddAsync(
         LogAggregationFilter filter,

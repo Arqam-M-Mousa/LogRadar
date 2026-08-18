@@ -7,9 +7,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace LogRadar.Infrastructure.Aggregation;
+namespace LogRadar.Infrastructure.Caching;
 
-public sealed class RedisAggregationCache : IAggregationCache, IDisposable
+public sealed class RedisAggregateCache : IAggregateCache, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -17,17 +17,17 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
     };
 
     private readonly IConnectionMultiplexer _redis;
-    private readonly AggregationCacheOptions _options;
-    private readonly ILogger<RedisAggregationCache> _logger;
+    private readonly AggregateCacheOptions _options;
+    private readonly ILogger<RedisAggregateCache> _logger;
     private readonly TimeSpan _ttl;
     private readonly ConcurrentDictionary<string, Lazy<Task<LogAggregationResult>>> _inFlight = new();
     private readonly ConcurrentDictionary<string, LocalCacheEntry> _localCache = new();
     private const int LocalCacheLimit = 256;
 
-    public RedisAggregationCache(
+    public RedisAggregateCache(
         IConnectionMultiplexer redis,
-        IOptions<AggregationCacheOptions> options,
-        ILogger<RedisAggregationCache> logger)
+        IOptions<AggregateCacheOptions> options,
+        ILogger<RedisAggregateCache> logger)
     {
         _redis = redis;
         _options = options.Value;

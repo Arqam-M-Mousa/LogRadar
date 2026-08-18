@@ -1,5 +1,6 @@
 using LogRadar.Domain.Aggregation;
 using LogRadar.Infrastructure.Persistence;
+using LogRadar.Infrastructure.Caching;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
@@ -10,16 +11,19 @@ namespace LogRadar.Infrastructure.Aggregation;
 public sealed class NpgsqlLogAggregationService : ILogAggregationService
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly IAggregationCache _cache;
+    private readonly IAggregateCache _cache;
+    private readonly IAggregateRollup _rollups;
     private readonly int _commandTimeoutSeconds;
 
     public NpgsqlLogAggregationService(
         ReadNpgsqlDataSource readDataSource,
-        IAggregationCache cache,
-        IOptions<AggregationCacheOptions> options)
+        IAggregateCache cache,
+        IAggregateRollup rollups,
+        IOptions<AggregateCacheOptions> options)
     {
         _dataSource = readDataSource.DataSource;
         _cache = cache;
+        _rollups = rollups;
         _commandTimeoutSeconds = Math.Max(1, options.Value.QueryTimeoutSeconds);
     }
 
@@ -32,6 +36,10 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
         LogAggregationFilter filter,
         CancellationToken cancellationToken)
     {
+        var rollupResult = await _rollups.TryGetAsync(filter, cancellationToken);
+        if (rollupResult is not null)
+            return rollupResult;
+
         var groupColumn = filter.GroupBy switch
         {
             "service" => "\"Service\"",
