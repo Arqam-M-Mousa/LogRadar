@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 
 namespace LogRadar.API.Contracts.Query;
-  
+
 
 public static class QueryLogsMappings
 {

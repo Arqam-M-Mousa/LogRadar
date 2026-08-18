@@ -3,7 +3,7 @@ namespace LogRadar.Infrastructure.Aggregation;
 public sealed class AggregationCacheOptions
 {
     public const string SectionName = "AggregationCache";
-    public int TtlSeconds { get; init; } = 5;
+    public int TtlSeconds { get; init; } = 30;
     public bool RedisEnabled { get; init; }
     public string? RedisConnection { get; init; }
     public string RedisKeyPrefix { get; init; } = "logradar:agg:";

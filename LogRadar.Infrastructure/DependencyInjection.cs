@@ -46,7 +46,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is missing.");
 
         var writeSource = CreateDataSource(connectionString, maxPoolSize: 10, minPoolSize: 2);
-        var readSource = CreateDataSource(connectionString, maxPoolSize: 6, minPoolSize: 1);
+        var readSource = CreateDataSource(connectionString, maxPoolSize: 10, minPoolSize: 1);
 
         services.AddSingleton(new WriteNpgsqlDataSource(writeSource));
         services.AddSingleton(new ReadNpgsqlDataSource(readSource));

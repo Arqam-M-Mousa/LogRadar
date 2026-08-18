@@ -21,6 +21,8 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
     private readonly ILogger<RedisAggregationCache> _logger;
     private readonly TimeSpan _ttl;
     private readonly ConcurrentDictionary<string, Lazy<Task<LogAggregationResult>>> _inFlight = new();
+    private readonly ConcurrentDictionary<string, LocalCacheEntry> _localCache = new();
+    private const int LocalCacheLimit = 256;
 
     public RedisAggregationCache(
         IConnectionMultiplexer redis,
@@ -39,13 +41,20 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
         CancellationToken cancellationToken)
     {
         var key = CreateKey(filter);
+
+        if (_localCache.TryGetValue(key, out var local) && local.ExpiresAt > DateTimeOffset.UtcNow)
+            return local.Result;
+
+        _localCache.TryRemove(key, out _);
         var pending = _inFlight.GetOrAdd(key, _ => new Lazy<Task<LogAggregationResult>>(
             () => ReadOrCreateAsync(key, filter, factory, cancellationToken),
             LazyThreadSafetyMode.ExecutionAndPublication));
 
         try
         {
-            return await pending.Value;
+            var result = await pending.Value;
+            AddToLocalCache(key, result);
+            return result;
         }
         finally
         {
@@ -119,6 +128,22 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
+
+    private void AddToLocalCache(string key, LogAggregationResult result)
+    {
+        if (_localCache.Count >= LocalCacheLimit)
+        {
+            var expired = _localCache.FirstOrDefault(entry => entry.Value.ExpiresAt <= DateTimeOffset.UtcNow);
+            if (!string.IsNullOrEmpty(expired.Key))
+                _localCache.TryRemove(expired.Key, out _);
+            else
+                _localCache.TryRemove(_localCache.Keys.FirstOrDefault() ?? key, out _);
+        }
+
+        _localCache[key] = new LocalCacheEntry(result, DateTimeOffset.UtcNow.Add(_ttl));
+    }
+
+    private sealed record LocalCacheEntry(LogAggregationResult Result, DateTimeOffset ExpiresAt);
 
     private sealed class CachedAggregation
     {

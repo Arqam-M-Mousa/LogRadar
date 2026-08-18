@@ -1,7 +1,7 @@
 using LogRadar.Domain.Aggregation;
 
 namespace LogRadar.API.Contracts.Aggregation;
-  
+
 
 public static class AggregateLogsMappings
 {

@@ -2,7 +2,7 @@ using LogRadar.Domain.Ingestion;
 using System.Text.Json;
 
 namespace LogRadar.API.Contracts.Ingestion;
-  
+
 
 public static class LogInputMapper
 {
