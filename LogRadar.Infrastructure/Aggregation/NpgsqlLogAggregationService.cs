@@ -1,20 +1,26 @@
 using LogRadar.Domain.Aggregation;
+using LogRadar.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 using System.Text;
 
 namespace LogRadar.Infrastructure.Aggregation;
-  
 
 public sealed class NpgsqlLogAggregationService : ILogAggregationService
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly AggregationCache _cache;
+    private readonly IAggregationCache _cache;
+    private readonly int _commandTimeoutSeconds;
 
-    public NpgsqlLogAggregationService(NpgsqlDataSource dataSource, AggregationCache cache)
+    public NpgsqlLogAggregationService(
+        ReadNpgsqlDataSource readDataSource,
+        IAggregationCache cache,
+        IOptions<AggregationCacheOptions> options)
     {
-        _dataSource = dataSource;
+        _dataSource = readDataSource.DataSource;
         _cache = cache;
+        _commandTimeoutSeconds = Math.Max(1, options.Value.QueryTimeoutSeconds);
     }
 
     public Task<LogAggregationResult> AggregateAsync(
@@ -83,7 +89,10 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
             sql.Append(", 2");
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql.ToString(), connection);
+        await using var command = new NpgsqlCommand(sql.ToString(), connection)
+        {
+            CommandTimeout = _commandTimeoutSeconds
+        };
         command.Parameters.AddRange(parameters.ToArray());
 
         var buckets = new List<LogAggregationBucket>();

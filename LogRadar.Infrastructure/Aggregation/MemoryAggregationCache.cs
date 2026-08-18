@@ -4,17 +4,18 @@ using System.Security.Cryptography;
 using System.Text;
 
 namespace LogRadar.Infrastructure.Aggregation;
-  
 
-public sealed class AggregationCache
+public sealed class MemoryAggregationCache : IAggregationCache
 {
     private readonly ConcurrentDictionary<string, (LogAggregationResult Result, long ExpiryTicks)> _cache = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<LogAggregationResult>>> _inFlight = new();
     private readonly TimeSpan _ttl;
-    private const int MaxEntries = 500;
+    private readonly int _maxEntries;
 
-    public AggregationCache(TimeSpan ttl)
+    public MemoryAggregationCache(TimeSpan ttl, int maxEntries = 500)
     {
         _ttl = ttl;
+        _maxEntries = Math.Max(16, maxEntries);
     }
 
     public async Task<LogAggregationResult> GetOrAddAsync(
@@ -28,19 +29,33 @@ public sealed class AggregationCache
         if (_cache.TryGetValue(key, out var entry) && now < entry.ExpiryTicks)
             return entry.Result;
 
-        var result = await factory(filter, cancellationToken);
-        var expiry = now + _ttl.TotalMilliseconds;
+        var pending = _inFlight.GetOrAdd(key, _ => new Lazy<Task<LogAggregationResult>>(
+            async () =>
+            {
+                var result = await factory(filter, cancellationToken);
+                var expiry = Environment.TickCount64 + (long)_ttl.TotalMilliseconds;
 
-        if (_cache.Count >= MaxEntries)
-            EvictExpired();
+                if (_cache.Count >= _maxEntries)
+                    EvictExpired();
 
-        _cache[key] = (result, (long)expiry);
-        return result;
+                _cache[key] = (result, expiry);
+                return result;
+            },
+            LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            return await pending.Value;
+        }
+        finally
+        {
+            _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<LogAggregationResult>>>(key, pending));
+        }
     }
 
-    private static string ComputeKey(LogAggregationFilter filter)
+    internal static string ComputeKey(LogAggregationFilter filter)
     {
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(128);
         sb.Append(filter.Since.ToUnixTimeMilliseconds()).Append('|');
         sb.Append(filter.Until.ToUnixTimeMilliseconds()).Append('|');
         sb.Append(filter.Bucket).Append('|');
@@ -51,7 +66,7 @@ public sealed class AggregationCache
 
         if (filter.AttributeFilters.Count > 0)
         {
-            foreach (var kv in filter.AttributeFilters.OrderBy(x => x.Key))
+            foreach (var kv in filter.AttributeFilters.OrderBy(x => x.Key, StringComparer.Ordinal))
                 sb.Append(kv.Key).Append('=').Append(kv.Value).Append(';');
         }
 

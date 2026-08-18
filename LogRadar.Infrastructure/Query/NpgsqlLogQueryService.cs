@@ -1,19 +1,19 @@
 using LogRadar.Domain.Query;
+using LogRadar.Infrastructure.Persistence;
 using Npgsql;
 using NpgsqlTypes;
 using System.Text;
 using System.Text.Json;
 
 namespace LogRadar.Infrastructure.Query;
-  
 
 public sealed class NpgsqlLogQueryService : ILogQueryService
 {
     private readonly NpgsqlDataSource _dataSource;
 
-    public NpgsqlLogQueryService(NpgsqlDataSource dataSource)
+    public NpgsqlLogQueryService(ReadNpgsqlDataSource readDataSource)
     {
-        _dataSource = dataSource;
+        _dataSource = readDataSource.DataSource;
     }
 
     public async Task<LogQueryResult> QueryAsync(

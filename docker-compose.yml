@@ -6,9 +6,11 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres;Maximum Pool Size=50;Minimum Pool Size=5;Timeout=20;Command Timeout=30
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=logradar;Username=postgres;Password=postgres;Maximum Pool Size=50;Minimum Pool Size=2;Timeout=20;Command Timeout=20
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -44,34 +46,22 @@ services:
         limits:
           cpus: '1.00'
           memory: 1024M
-    command:
-      - postgres
-      - -c
-      - max_connections=100
-      - -c
-      - shared_buffers=256MB
-      - -c
-      - effective_cache_size=700MB
-      - -c
-      - work_mem=8MB
-      - -c
-      - maintenance_work_mem=64MB
-      - -c
-      - synchronous_commit=off
-      - -c
-      - checkpoint_completion_target=0.9
-      - -c
-      - max_wal_size=2GB
-      - -c
-      - autovacuum_naptime=5s
-      - -c
-      - autovacuum_vacuum_cost_limit=2000
-      - -c
-      - autovacuum_vacuum_scale_factor=0.01
-      - -c
-      - autovacuum_analyze_scale_factor=0.02
-      - -c
-      - random_page_cost=1.1
+  redis:
+    image: redis:latest
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 96M
 
 volumes:
   postgres_data:

@@ -6,7 +6,6 @@ using LogRadar.Domain.Aggregation;
 using LogRadar.Domain.Ingestion;
 using LogRadar.Domain.Query;
 using Microsoft.AspNetCore.Mvc;
-  
 
 namespace LogRadar.API.Controllers;
 
@@ -70,10 +69,22 @@ public class LogsController : ControllerBase
 
         if (validLogs.Count > 0)
         {
-            foreach (var log in validLogs)
-                await _ingestionService.WriteAsync(log, cancellationToken);
-
-            await _ingestionService.FlushAsync(cancellationToken);
+            try
+            {
+                await _ingestionService.WriteBatchAsync(validLogs, cancellationToken);
+                await _ingestionService.FlushAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    error = "ingestion temporarily unavailable"
+                });
+            }
         }
 
         var response = new IngestLogsResponse
@@ -124,7 +135,22 @@ public class LogsController : ControllerBase
         }
 
         var filter = request.ToFilter(HttpContext.Request.Query);
-        var result = await _aggregationService.AggregateAsync(filter, cancellationToken);
+        LogAggregationResult result;
+        try
+        {
+            result = await _aggregationService.AggregateAsync(filter, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "aggregation temporarily unavailable"
+            });
+        }
 
         return Ok(result.ToResponse());
     }

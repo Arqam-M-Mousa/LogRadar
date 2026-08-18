@@ -6,10 +6,13 @@ using LogRadar.Infrastructure.Ingestion;
 using LogRadar.Infrastructure.Persistence;
 using LogRadar.Infrastructure.Query;
 using LogRadar.Infrastructure.Retention;
-  
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Npgsql;
+using StackExchange.Redis;
 
 namespace LogRadar.Infrastructure;
 
@@ -20,9 +23,9 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.AddDbConfig(configuration);
-        services.AddNpgsqlDataSource(configuration.GetConnectionString("DefaultConnection")!);
+        services.AddNpgsqlPools(configuration);
         services.AddSingleton<NpgsqlLogBulkWriter>();
-        services.AddSingleton(new AggregationCache(TimeSpan.FromSeconds(5)));
+        services.AddAggregationCache(configuration);
         services.AddScoped<ILogQueryService, NpgsqlLogQueryService>();
         services.AddScoped<ILogAggregationService, NpgsqlLogAggregationService>();
         services.Configure<RetentionOptions>(options =>
@@ -31,6 +34,85 @@ public static class DependencyInjection
         services.AddLogIngestion(configuration);
         services.AddHealthChecks()
             .AddDbContextCheck<LogRadarDbContext>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddNpgsqlPools(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is missing.");
+
+        var writeSource = CreateDataSource(connectionString, maxPoolSize: 10, minPoolSize: 2);
+        var readSource = CreateDataSource(connectionString, maxPoolSize: 6, minPoolSize: 1);
+
+        services.AddSingleton(new WriteNpgsqlDataSource(writeSource));
+        services.AddSingleton(new ReadNpgsqlDataSource(readSource));
+        services.AddSingleton(writeSource);
+
+        return services;
+    }
+
+    private static NpgsqlDataSource CreateDataSource(string connectionString, int maxPoolSize, int minPoolSize)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            MaxPoolSize = maxPoolSize,
+            MinPoolSize = minPoolSize,
+            Multiplexing = false
+        };
+
+        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+    }
+
+    private static IServiceCollection AddAggregationCache(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<AggregationCacheOptions>(options =>
+            configuration.GetSection(AggregationCacheOptions.SectionName).Bind(options));
+
+        services.AddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<AggregationCacheOptions>>().Value;
+            var ttl = TimeSpan.FromSeconds(Math.Max(1, options.TtlSeconds));
+            return new MemoryAggregationCache(ttl, options.MemoryMaxEntries);
+        });
+
+        services.AddSingleton<IAggregationCache>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<AggregationCacheOptions>>().Value;
+            var memory = sp.GetRequiredService<MemoryAggregationCache>();
+
+            if (!options.RedisEnabled || string.IsNullOrWhiteSpace(options.RedisConnection))
+                return memory;
+
+            try
+            {
+                var multiplexer = ConnectionMultiplexer.Connect(new ConfigurationOptions
+                {
+                    EndPoints = { options.RedisConnection },
+                    AbortOnConnectFail = false,
+                    ConnectTimeout = 1000,
+                    SyncTimeout = 1000,
+                    AsyncTimeout = 1000,
+                    ConnectRetry = 2
+                });
+
+                var logger = sp.GetRequiredService<ILogger<RedisAggregationCache>>();
+                return new RedisAggregationCache(
+                    memory,
+                    multiplexer,
+                    sp.GetRequiredService<IOptions<AggregationCacheOptions>>(),
+                    logger);
+            }
+            catch (Exception)
+            {
+                return memory;
+            }
+        });
 
         return services;
     }

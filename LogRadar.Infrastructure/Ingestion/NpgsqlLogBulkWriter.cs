@@ -1,24 +1,33 @@
 ﻿using LogRadar.Domain.Ingestion;
+using LogRadar.Infrastructure.Persistence;
 using Npgsql;
+using NpgsqlTypes;
+using System.Text.Json;
 
 namespace LogRadar.Infrastructure.Ingestion;
-  
 
 public sealed class NpgsqlLogBulkWriter
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false
+    };
+
     private readonly NpgsqlDataSource _dataSource;
 
-    public NpgsqlLogBulkWriter(NpgsqlDataSource dataSource)
+    public NpgsqlLogBulkWriter(WriteNpgsqlDataSource writeDataSource)
     {
-        _dataSource = dataSource;
+        _dataSource = writeDataSource.DataSource;
     }
 
     public async Task WriteAsync(
         IReadOnlyList<LogEntry> logs,
         CancellationToken cancellationToken)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        if (logs.Count == 0)
+            return;
 
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var writer = await connection.BeginBinaryImportAsync(
             "COPY log (\"Timestamp\", \"Level\", \"Service\", \"Message\", \"Attributes\") FROM STDIN (FORMAT BINARY)",
             cancellationToken);
@@ -26,18 +35,20 @@ public sealed class NpgsqlLogBulkWriter
         foreach (var log in logs)
         {
             await writer.StartRowAsync(cancellationToken);
-            await writer.WriteAsync(log.Timestamp, NpgsqlTypes.NpgsqlDbType.TimestampTz, cancellationToken);
-            await writer.WriteAsync(log.Level, NpgsqlTypes.NpgsqlDbType.Varchar, cancellationToken);
-            await writer.WriteAsync(log.Service, NpgsqlTypes.NpgsqlDbType.Varchar, cancellationToken);
-            await writer.WriteAsync(log.Message, NpgsqlTypes.NpgsqlDbType.Varchar, cancellationToken);
+            await writer.WriteAsync(log.Timestamp, NpgsqlDbType.TimestampTz, cancellationToken);
+            await writer.WriteAsync(log.Level, NpgsqlDbType.Varchar, cancellationToken);
+            await writer.WriteAsync(log.Service, NpgsqlDbType.Varchar, cancellationToken);
+            await writer.WriteAsync(log.Message, NpgsqlDbType.Varchar, cancellationToken);
 
-            if (log.Attributes is null)
+            if (log.Attributes is null || log.Attributes.Count == 0)
+            {
                 await writer.WriteNullAsync(cancellationToken);
+            }
             else
-                await writer.WriteAsync(
-                    System.Text.Json.JsonSerializer.Serialize(log.Attributes),
-                    NpgsqlTypes.NpgsqlDbType.Jsonb,
-                    cancellationToken);
+            {
+                var payload = JsonSerializer.SerializeToUtf8Bytes(log.Attributes, JsonOptions);
+                await writer.WriteAsync(payload, NpgsqlDbType.Jsonb, cancellationToken);
+            }
         }
 
         await writer.CompleteAsync(cancellationToken);

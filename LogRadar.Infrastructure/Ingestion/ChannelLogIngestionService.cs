@@ -1,7 +1,6 @@
 using LogRadar.Domain.Ingestion;
 
 namespace LogRadar.Infrastructure.Ingestion;
-  
 
 public sealed class ChannelLogIngestionService : ILogIngestionService
 {
@@ -12,8 +11,8 @@ public sealed class ChannelLogIngestionService : ILogIngestionService
         _channel = channel;
     }
 
-    public ValueTask WriteAsync(LogEntry log, CancellationToken cancellationToken) =>
-        _channel.Writer.WriteAsync(log, cancellationToken);
+    public ValueTask WriteBatchAsync(IReadOnlyList<LogEntry> logs, CancellationToken cancellationToken) =>
+        _channel.WriteBatchAsync(logs, cancellationToken);
 
     public Task FlushAsync(CancellationToken cancellationToken) =>
         _channel.FlushAsync(cancellationToken);

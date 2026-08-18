@@ -1,3 +1,4 @@
+using LogRadar.Infrastructure.Persistence;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,11 +26,11 @@ public sealed class LogRetentionService : BackgroundService
     private readonly ILogger<LogRetentionService> _logger;
 
     public LogRetentionService(
-        NpgsqlDataSource dataSource,
+        WriteNpgsqlDataSource writeDataSource,
         IOptions<RetentionOptions> options,
         ILogger<LogRetentionService> logger)
     {
-        _dataSource = dataSource;
+        _dataSource = writeDataSource.DataSource;
         _options = options.Value;
         _logger = logger;
     }

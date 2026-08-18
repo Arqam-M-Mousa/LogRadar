@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace LogRadar.Infrastructure.Ingestion;
-  
 
 public sealed class LogBatchWriterService : BackgroundService
 {
@@ -39,34 +38,50 @@ public sealed class LogBatchWriterService : BackgroundService
         var reader = _channel.Reader;
         var maxBatchSize = Math.Max(1, _options.MaxBatchSize);
         var flushInterval = TimeSpan.FromMilliseconds(Math.Max(1, _options.FlushIntervalMs));
-        var buffer = new List<LogEntry>(maxBatchSize);
+        var pending = new Queue<IngestBatch>();
+        var logBuffer = new List<LogEntry>(maxBatchSize);
+        var included = new List<IngestBatch>(16);
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            _channel.CompletePendingFlushes();
-            buffer.Clear();
+            logBuffer.Clear();
+            included.Clear();
 
-            bool canRead;
-            try
+            if (pending.Count == 0)
             {
-                canRead = await reader.WaitToReadAsync(stoppingToken);
+                bool canRead;
+                try
+                {
+                    canRead = await reader.WaitToReadAsync(stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                if (!canRead)
+                    return;
+
+                while (reader.TryRead(out var batch))
+                    pending.Enqueue(batch);
             }
-            catch (OperationCanceledException)
+
+            while (pending.Count > 0 && logBuffer.Count < maxBatchSize)
             {
-                return;
+                var batch = pending.Peek();
+                if (logBuffer.Count > 0 && logBuffer.Count + batch.Logs.Count > maxBatchSize)
+                    break;
+
+                pending.Dequeue();
+                included.Add(batch);
+                logBuffer.AddRange(batch.Logs);
             }
 
-            if (!canRead)
-                return;
-
-            while (buffer.Count < maxBatchSize && reader.TryRead(out var first))
-                buffer.Add(first);
-
-            if (buffer.Count < maxBatchSize)
+            if (logBuffer.Count < maxBatchSize && pending.Count == 0)
             {
                 var deadline = DateTime.UtcNow + flushInterval;
 
-                while (buffer.Count < maxBatchSize)
+                while (logBuffer.Count < maxBatchSize)
                 {
                     var remaining = deadline - DateTime.UtcNow;
                     if (remaining <= TimeSpan.Zero)
@@ -92,18 +107,32 @@ public sealed class LogBatchWriterService : BackgroundService
                     if (!moreAvailable)
                         break;
 
-                    while (buffer.Count < maxBatchSize && reader.TryRead(out var log))
-                        buffer.Add(log);
+                    while (reader.TryRead(out var batch))
+                        pending.Enqueue(batch);
+
+                    while (pending.Count > 0 && logBuffer.Count < maxBatchSize)
+                    {
+                        var batch = pending.Peek();
+                        if (logBuffer.Count > 0 && logBuffer.Count + batch.Logs.Count > maxBatchSize)
+                            break;
+
+                        pending.Dequeue();
+                        included.Add(batch);
+                        logBuffer.AddRange(batch.Logs);
+                    }
                 }
             }
 
-            if (buffer.Count == 0)
+            if (included.Count == 0)
                 continue;
+
+            var startSequence = included[0].StartSequence;
+            var endSequence = included[^1].EndSequence;
 
             try
             {
-                await _bulkWriter.WriteAsync(buffer, stoppingToken);
-                _channel.CompletePendingFlushes();
+                await WriteWithRetryAsync(logBuffer, stoppingToken);
+                _channel.NotifyCommitted(startSequence, endSequence);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -111,8 +140,39 @@ public sealed class LogBatchWriterService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to write batch of {Count} logs to PostgreSQL", buffer.Count);
+                _logger.LogError(ex, "Failed to write batch of {Count} logs to PostgreSQL", logBuffer.Count);
+                _channel.NotifyFailed(startSequence, endSequence, ex);
             }
         }
+    }
+
+    private async Task WriteWithRetryAsync(IReadOnlyList<LogEntry> logs, CancellationToken stoppingToken)
+    {
+        const int maxAttempts = 3;
+        Exception? last = null;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await _bulkWriter.WriteAsync(logs, stoppingToken);
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                last = ex;
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+            }
+        }
+
+        throw last ?? new InvalidOperationException("Log batch write failed.");
     }
 }
