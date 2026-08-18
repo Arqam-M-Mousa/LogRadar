@@ -2,6 +2,9 @@ using LogRadar.Domain.Aggregation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace LogRadar.Infrastructure.Aggregation;
@@ -13,19 +16,17 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private readonly MemoryAggregationCache _memory;
     private readonly IConnectionMultiplexer _redis;
     private readonly AggregationCacheOptions _options;
     private readonly ILogger<RedisAggregationCache> _logger;
     private readonly TimeSpan _ttl;
+    private readonly ConcurrentDictionary<string, Lazy<Task<LogAggregationResult>>> _inFlight = new();
 
     public RedisAggregationCache(
-        MemoryAggregationCache memory,
         IConnectionMultiplexer redis,
         IOptions<AggregationCacheOptions> options,
         ILogger<RedisAggregationCache> logger)
     {
-        _memory = memory;
         _redis = redis;
         _options = options.Value;
         _logger = logger;
@@ -37,54 +38,87 @@ public sealed class RedisAggregationCache : IAggregationCache, IDisposable
         Func<LogAggregationFilter, CancellationToken, Task<LogAggregationResult>> factory,
         CancellationToken cancellationToken)
     {
-        return await _memory.GetOrAddAsync(filter, async (innerFilter, token) =>
+        var key = CreateKey(filter);
+        var pending = _inFlight.GetOrAdd(key, _ => new Lazy<Task<LogAggregationResult>>(
+            () => ReadOrCreateAsync(key, filter, factory, cancellationToken),
+            LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
         {
-            var key = _options.RedisKeyPrefix + MemoryAggregationCache.ComputeKey(innerFilter);
-
-            try
-            {
-                var db = _redis.GetDatabase();
-                var cached = await db.StringGetAsync(key);
-                if (cached.HasValue)
-                {
-                    var payload = JsonSerializer.Deserialize<CachedAggregation>((string)cached!, JsonOptions);
-                    if (payload?.Buckets is not null)
-                    {
-                        return new LogAggregationResult(payload.Buckets
-                            .Select(b => new LogAggregationBucket(b.Start, b.Group, b.Count))
-                            .ToList());
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Redis aggregation cache read failed; falling back to PostgreSQL");
-            }
-
-            var result = await factory(innerFilter, token);
-
-            try
-            {
-                var db = _redis.GetDatabase();
-                var payload = JsonSerializer.Serialize(new CachedAggregation
-                {
-                    Buckets = result.Buckets
-                        .Select(b => new CachedBucket(b.Start, b.Group, b.Count))
-                        .ToList()
-                }, JsonOptions);
-
-                await db.StringSetAsync(key, payload, _ttl);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Redis aggregation cache write failed");
-            }
-
-            return result;
-        }, cancellationToken);
+            return await pending.Value;
+        }
+        finally
+        {
+            _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<LogAggregationResult>>>(key, pending));
+        }
     }
 
     public void Dispose() => _redis.Dispose();
+
+    private async Task<LogAggregationResult> ReadOrCreateAsync(
+        string key,
+        LogAggregationFilter filter,
+        Func<LogAggregationFilter, CancellationToken, Task<LogAggregationResult>> factory,
+        CancellationToken cancellationToken)
+    {
+        var redisKey = _options.RedisKeyPrefix + key;
+
+        try
+        {
+            var cached = await _redis.GetDatabase().StringGetAsync(redisKey);
+            if (cached.HasValue)
+            {
+                var payload = JsonSerializer.Deserialize<CachedAggregation>((string)cached!, JsonOptions);
+                if (payload?.Buckets is not null)
+                {
+                    return new LogAggregationResult(payload.Buckets
+                        .Select(bucket => new LogAggregationBucket(bucket.Start, bucket.Group, bucket.Count))
+                        .ToList());
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis aggregation cache read failed; falling back to PostgreSQL");
+        }
+
+        var result = await factory(filter, cancellationToken);
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new CachedAggregation
+            {
+                Buckets = result.Buckets
+                    .Select(bucket => new CachedBucket(bucket.Start, bucket.Group, bucket.Count))
+                    .ToList()
+            }, JsonOptions);
+
+            await _redis.GetDatabase().StringSetAsync(redisKey, payload, _ttl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis aggregation cache write failed");
+        }
+
+        return result;
+    }
+
+    private static string CreateKey(LogAggregationFilter filter)
+    {
+        var value = new StringBuilder(128)
+            .Append(filter.Since.ToUnixTimeMilliseconds()).Append('|')
+            .Append(filter.Until.ToUnixTimeMilliseconds()).Append('|')
+            .Append(filter.Bucket).Append('|')
+            .Append(filter.Service ?? "").Append('|')
+            .Append(filter.Level ?? "").Append('|')
+            .Append(filter.GroupBy ?? "").Append('|')
+            .Append(filter.MessageContains ?? "").Append('|');
+
+        foreach (var filterValue in filter.AttributeFilters.OrderBy(x => x.Key, StringComparer.Ordinal))
+            value.Append(filterValue.Key).Append('=').Append(filterValue.Value).Append(';');
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
 
     private sealed class CachedAggregation
     {

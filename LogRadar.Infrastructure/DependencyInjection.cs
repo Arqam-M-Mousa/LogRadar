@@ -74,20 +74,12 @@ public static class DependencyInjection
         services.Configure<AggregationCacheOptions>(options =>
             configuration.GetSection(AggregationCacheOptions.SectionName).Bind(options));
 
-        services.AddSingleton(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<AggregationCacheOptions>>().Value;
-            var ttl = TimeSpan.FromSeconds(Math.Max(1, options.TtlSeconds));
-            return new MemoryAggregationCache(ttl, options.MemoryMaxEntries);
-        });
-
         services.AddSingleton<IAggregationCache>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<AggregationCacheOptions>>().Value;
-            var memory = sp.GetRequiredService<MemoryAggregationCache>();
 
             if (!options.RedisEnabled || string.IsNullOrWhiteSpace(options.RedisConnection))
-                return memory;
+                return new PassthroughAggregationCache();
 
             try
             {
@@ -103,14 +95,13 @@ public static class DependencyInjection
 
                 var logger = sp.GetRequiredService<ILogger<RedisAggregationCache>>();
                 return new RedisAggregationCache(
-                    memory,
                     multiplexer,
                     sp.GetRequiredService<IOptions<AggregationCacheOptions>>(),
                     logger);
             }
             catch (Exception)
             {
-                return memory;
+                return new PassthroughAggregationCache();
             }
         });
 
