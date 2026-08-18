@@ -158,6 +158,8 @@ Invalid parameters return HTTP 400:
 
 Aggregation is executed in PostgreSQL using `date_bin()` for time bucketing. Dynamic `GROUP BY` columns are selected exclusively from the validated `service`/`level` allow-list. All user-supplied values are parameterized.
 
+Redis is used as a disposable acceleration layer for aligned five-minute, hourly, and daily aggregations grouped or filtered by service and level. PostgreSQL is written first, and rollup updates are processed asynchronously with bounded back-pressure. Hourly and daily results are composed by summing their five-minute Redis buckets. Aggregations with message or attribute filters, unaligned ranges, missing or evicted Redis rollups, or expired rollups fall back to PostgreSQL.
+
 ## Attribute storage strategy
 
 Attributes are stored as a PostgreSQL `jsonb` column. This provides:
@@ -193,7 +195,7 @@ HTTP POST /logs
 
 HTTP GET /logs or /logs/aggregate
   -> parameterized Npgsql query
-  -> PostgreSQL
+  -> Redis rollups when supported, otherwise PostgreSQL
 ```
 
 The bounded in-process channel separates request acceptance from database persistence while applying back-pressure when it reaches capacity. PostgreSQL remains the system of record for all log writes and reads. Because the buffer is process-local, accepted logs waiting in it are not durable until their batch has been written to PostgreSQL.
@@ -208,6 +210,28 @@ The bounded in-process channel separates request acceptance from database persis
   "WriterConcurrency": 3
 }
 ```
+
+Redis rollups are configured separately. Redis is intentionally disposable because PostgreSQL remains the source of truth:
+
+```json
+"AggregationCache": {
+  "RedisEnabled": true,
+  "RollupEnabled": true,
+  "RollupRetentionHours": 48
+}
+```
+
+### Caching classes
+
+Caching code lives under `LogRadar.Infrastructure/Caching`:
+
+- `AggregateCacheOptions` — settings for Redis result caching and rollups.
+- `IAggregateCache` — contract for caching a complete aggregate response.
+- `RedisAggregateCache` — stores complete responses in Redis and coalesces identical requests.
+- `NoopAggregateCache` — bypasses result caching when Redis is disabled.
+- `IAggregateRollup` — contract for reusable time-bucket counters.
+- `RedisAggregateRollup` — asynchronously writes five-minute counters and composes supported hourly and daily results.
+- `NoopAggregateRollup` — disables rollups without changing the ingestion or query pipeline.
 
 | Setting | Default | Description |
 |---|---|---|
