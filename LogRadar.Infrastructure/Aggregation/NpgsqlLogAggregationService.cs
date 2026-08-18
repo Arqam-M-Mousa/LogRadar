@@ -27,19 +27,19 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
         _commandTimeoutSeconds = Math.Max(1, options.Value.QueryTimeoutSeconds);
     }
 
-    public Task<LogAggregationResult> AggregateAsync(
+    public async Task<LogAggregationResult> AggregateAsync(
         LogAggregationFilter filter,
-        CancellationToken cancellationToken) =>
-        _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var rollupResult = await _rollups.TryGetAsync(filter, cancellationToken);
+        return rollupResult
+            ?? await _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
+    }
 
     private async Task<LogAggregationResult> ExecuteAggregateAsync(
         LogAggregationFilter filter,
         CancellationToken cancellationToken)
     {
-        var rollupResult = await _rollups.TryGetAsync(filter, cancellationToken);
-        if (rollupResult is not null)
-            return rollupResult;
-
         var groupColumn = filter.GroupBy switch
         {
             "service" => "\"Service\"",
