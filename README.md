@@ -236,10 +236,10 @@ Redis rollups support service/level filters and do not support message or attrib
 
 ```json
 "Ingestion": {
-  "ChannelCapacity": 50000,
+  "ChannelCapacity": 32,
   "MaxBatchSize": 2000,
-  "FlushIntervalMs": 50,
-  "WriterConcurrency": 3
+  "FlushIntervalMs": 25,
+  "WriterConcurrency": 2
 }
 ```
 
@@ -267,9 +267,9 @@ Caching code lives under `LogRadar.Infrastructure/Caching`:
 
 | Setting | Default | Description |
 |---|---|---|
-| `ChannelCapacity` | 50000 | Max in-flight logs buffered in memory before back-pressure |
+| `ChannelCapacity` | 32 | Max queued request batches before back-pressure |
 | `MaxBatchSize` | 2000 | Max rows per PostgreSQL binary `COPY` call |
-| `FlushIntervalMs` | 10 | How long a writer waits to fill a batch before flushing early |
+| `FlushIntervalMs` | 25 | How long a writer waits to fill a batch before flushing early |
 | `WriterConcurrency` | 2 | Number of concurrent background writers draining the channel |
 
 ## Performance results

@@ -15,7 +15,7 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
     private readonly AggregateCacheOptions _options;
     private readonly ILogger<RedisAggregateRollup> _logger;
     private readonly TimeSpan _retention;
-    private readonly Channel<LogEntry[]> _pending = Channel.CreateBounded<LogEntry[]>(new BoundedChannelOptions(512)
+    private readonly Channel<LogEntry[]> _pending = Channel.CreateBounded<LogEntry[]>(new BoundedChannelOptions(64)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
