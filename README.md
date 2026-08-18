@@ -158,7 +158,7 @@ Invalid parameters return HTTP 400:
 
 Aggregation is executed in PostgreSQL using `date_bin()` for time bucketing. Dynamic `GROUP BY` columns are selected exclusively from the validated `service`/`level` allow-list. All user-supplied values are parameterized.
 
-Redis is used as a disposable acceleration layer for aligned five-minute, hourly, and daily aggregations grouped or filtered by service and level. PostgreSQL is written first, and rollup updates are processed asynchronously with bounded back-pressure. Hourly and daily results are composed by summing their five-minute Redis buckets. Aggregations with message or attribute filters, unaligned ranges, missing or evicted Redis rollups, or expired rollups fall back to PostgreSQL.
+Redis is used as a disposable acceleration layer for minute, five-minute, hourly, and daily aggregations grouped or filtered by service and level. PostgreSQL is written first, and rollup updates are processed asynchronously without blocking ingestion. Hourly and daily results are composed by summing minute Redis buckets. Partial minute edges, message or attribute filters, missing or evicted Redis rollups, or expired rollups fall back to PostgreSQL.
 
 ## Attribute storage strategy
 
@@ -200,6 +200,38 @@ HTTP GET /logs or /logs/aggregate
 
 The bounded in-process channel separates request acceptance from database persistence while applying back-pressure when it reaches capacity. PostgreSQL remains the system of record for all log writes and reads. Because the buffer is process-local, accepted logs waiting in it are not durable until their batch has been written to PostgreSQL.
 
+### Request flow in detail
+
+#### Ingestion
+
+```text
+POST /logs
+  -> validate every entry
+  -> enqueue valid entries
+  -> wait for PostgreSQL COPY to complete
+  -> enqueue a small Redis rollup update
+  -> return HTTP 200
+```
+
+The PostgreSQL write happens before the log is acknowledged. Redis rollup processing happens separately and never blocks the request when its queue is full. If Redis is unavailable or falls behind, rollups are disabled for that process and aggregate queries use PostgreSQL instead.
+
+#### Aggregation
+
+```text
+GET /logs/aggregate
+  -> can Redis answer this filter?
+       yes: read minute counters from Redis
+            sum them into 5m, 1h, or 1d buckets
+            query PostgreSQL only for partial minute edges
+       no:  use the exact-result cache
+            -> 2-second local cache
+            -> in-flight request coalescing
+            -> Redis result cache
+            -> PostgreSQL aggregate query
+```
+
+Redis rollups support service/level filters and do not support message or attribute filters. Redis is an acceleration layer only; PostgreSQL remains authoritative in every path.
+
 ### Configuration
 
 ```json
@@ -227,10 +259,10 @@ Caching code lives under `LogRadar.Infrastructure/Caching`:
 
 - `AggregateCacheOptions` — settings for Redis result caching and rollups.
 - `IAggregateCache` — contract for caching a complete aggregate response.
-- `RedisAggregateCache` — stores complete responses in Redis and coalesces identical requests.
+- `RedisAggregateCache` — stores complete fallback responses in Redis, keeps up to 128 exact results locally for 2 seconds, and coalesces identical concurrent requests.
 - `NoopAggregateCache` — bypasses result caching when Redis is disabled.
 - `IAggregateRollup` — contract for reusable time-bucket counters.
-- `RedisAggregateRollup` — asynchronously writes five-minute counters and composes supported hourly and daily results.
+- `RedisAggregateRollup` — asynchronously writes minute counters, composes larger buckets, and combines PostgreSQL partial edges.
 - `NoopAggregateRollup` — disables rollups without changing the ingestion or query pipeline.
 
 | Setting | Default | Description |
