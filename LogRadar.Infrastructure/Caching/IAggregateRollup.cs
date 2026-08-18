@@ -9,5 +9,6 @@ public interface IAggregateRollup
 
     Task<LogAggregationResult?> TryGetAsync(
         LogAggregationFilter filter,
+        Func<LogAggregationFilter, CancellationToken, Task<LogAggregationResult>> queryFallback,
         CancellationToken cancellationToken);
 }

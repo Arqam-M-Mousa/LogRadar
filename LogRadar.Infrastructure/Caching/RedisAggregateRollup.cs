@@ -10,7 +10,7 @@ namespace LogRadar.Infrastructure.Caching;
 
 public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
 {
-    private const int RollupMinutes = 5;
+    private const int RollupMinutes = 1;
     private readonly IDatabase _database;
     private readonly AggregateCacheOptions _options;
     private readonly ILogger<RedisAggregateRollup> _logger;
@@ -22,6 +22,7 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
         SingleWriter = false
     });
     private Task? _processingTask;
+    private int _disabled;
 
     public RedisAggregateRollup(
         IConnectionMultiplexer redis,
@@ -34,12 +35,18 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
         _retention = TimeSpan.FromHours(Math.Max(1, _options.RollupRetentionHours));
     }
 
-    public async Task AddAsync(IReadOnlyList<LogEntry> logs, CancellationToken cancellationToken)
+    public Task AddAsync(IReadOnlyList<LogEntry> logs, CancellationToken cancellationToken)
     {
         if (logs.Count == 0 || !_options.RollupEnabled)
-            return;
+            return Task.CompletedTask;
 
-        await _pending.Writer.WriteAsync(logs.ToArray(), cancellationToken);
+        if (!_pending.Writer.TryWrite(logs.ToArray()))
+        {
+            Interlocked.Exchange(ref _disabled, 1);
+            _logger.LogWarning("Redis aggregation rollup queue is full; disabling rollups until restart");
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -105,6 +112,7 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            Interlocked.Exchange(ref _disabled, 1);
             try
             {
                 var deleteTasks = increments.Keys.Select(key => _database.KeyDeleteAsync(key));
@@ -121,77 +129,130 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
 
     public async Task<LogAggregationResult?> TryGetAsync(
         LogAggregationFilter filter,
+        Func<LogAggregationFilter, CancellationToken, Task<LogAggregationResult>> queryFallback,
         CancellationToken cancellationToken)
     {
-        if (!_options.RollupEnabled
-            || filter.Bucket is not ("5m" or "1h" or "1d")
+        if (Volatile.Read(ref _disabled) != 0
+            || !_options.RollupEnabled
+            || filter.Bucket is not ("1m" or "5m" or "1h" or "1d")
             || filter.MessageContains is not null
-            || filter.AttributeFilters.Count > 0
-            || !IsAligned(filter.Since, filter.Bucket)
-            || !IsAligned(filter.Until, filter.Bucket))
+            || filter.AttributeFilters.Count > 0)
             return null;
 
         var outputMinutes = filter.Bucket switch
         {
+            "1m" => 1,
             "5m" => 5,
             "1h" => 60,
             "1d" => 24 * 60,
             _ => 0
         };
 
-        var keys = new List<RedisKey>();
-        for (var cursor = filter.Since; cursor < filter.Until; cursor = cursor.AddMinutes(RollupMinutes))
-            keys.Add(CreateKey(cursor));
-
-        if (keys.Count == 0)
-            return new LogAggregationResult([]);
-
         try
         {
-            var existsBatch = _database.CreateBatch();
-            var existsTasks = keys.Select(key => existsBatch.KeyExistsAsync(key)).ToArray();
-            existsBatch.Execute();
-            var exists = await Task.WhenAll(existsTasks).WaitAsync(cancellationToken);
-            if (exists.Any(value => !value))
-                return null;
+            var minuteSince = CeilingToMinute(filter.Since);
+            var minuteUntil = FloorToMinute(filter.Until);
+            var parts = new List<LogAggregationResult>();
 
-            var readBatch = _database.CreateBatch();
-            var hashTasks = keys.Select(key => readBatch.HashGetAllAsync(key)).ToArray();
-            readBatch.Execute();
-            var hashes = await Task.WhenAll(hashTasks).WaitAsync(cancellationToken);
-
-            var buckets = new List<LogAggregationBucket>();
-            var segmentsPerOutputBucket = outputMinutes / RollupMinutes;
-            for (var outputIndex = 0; outputIndex < hashes.Length / segmentsPerOutputBucket; outputIndex++)
+            if (filter.Since < minuteSince)
             {
-                var counts = new Dictionary<string, long>(StringComparer.Ordinal);
-                var firstSegment = outputIndex * segmentsPerOutputBucket;
-                var lastSegment = firstSegment + segmentsPerOutputBucket;
-
-                for (var segmentIndex = firstSegment; segmentIndex < lastSegment; segmentIndex++)
-                {
-                    foreach (var (group, count) in ReadBucketCounts(filter, hashes[segmentIndex]))
-                        counts[group] = counts.GetValueOrDefault(group) + count;
-                }
-
-                var start = filter.Since.AddMinutes(outputIndex * outputMinutes);
-                foreach (var (group, count) in counts)
-                    buckets.Add(new LogAggregationBucket(start, group == "__total" ? null : group, count));
+                var edgeUntil = minuteSince < filter.Until ? minuteSince : filter.Until;
+                parts.Add(await queryFallback(filter with { Until = edgeUntil }, cancellationToken));
             }
 
-            buckets.Sort(static (left, right) =>
+            if (minuteSince < minuteUntil)
             {
-                var result = left.Start.CompareTo(right.Start);
-                return result != 0 ? result : string.CompareOrdinal(left.Group, right.Group);
-            });
+                var middle = await ReadRedisRangeAsync(
+                    filter,
+                    minuteSince,
+                    minuteUntil,
+                    outputMinutes,
+                    cancellationToken);
+                if (middle is null)
+                    return null;
+                parts.Add(middle);
+            }
 
-            return new LogAggregationResult(buckets);
+            if (minuteUntil < filter.Until && minuteUntil >= filter.Since)
+            {
+                var edgeSince = minuteUntil > filter.Since ? minuteUntil : filter.Since;
+                parts.Add(await queryFallback(filter with { Since = edgeSince }, cancellationToken));
+            }
+
+            if (parts.Count == 0)
+                return await queryFallback(filter, cancellationToken);
+
+            return Merge(parts);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Redis aggregation rollup read failed; falling back to PostgreSQL");
             return null;
         }
+    }
+
+    private async Task<LogAggregationResult?> ReadRedisRangeAsync(
+        LogAggregationFilter filter,
+        DateTimeOffset since,
+        DateTimeOffset until,
+        int outputMinutes,
+        CancellationToken cancellationToken)
+    {
+        var timestamps = new List<DateTimeOffset>();
+        for (var cursor = since; cursor < until; cursor = cursor.AddMinutes(RollupMinutes))
+            timestamps.Add(cursor);
+
+        var keys = timestamps.Select(CreateKey).ToArray();
+        var existsBatch = _database.CreateBatch();
+        var existsTasks = keys.Select(key => existsBatch.KeyExistsAsync(key)).ToArray();
+        existsBatch.Execute();
+        if ((await Task.WhenAll(existsTasks).WaitAsync(cancellationToken)).Any(value => !value))
+            return null;
+
+        var readBatch = _database.CreateBatch();
+        var hashTasks = keys.Select(key => readBatch.HashGetAllAsync(key)).ToArray();
+        readBatch.Execute();
+        var hashes = await Task.WhenAll(hashTasks).WaitAsync(cancellationToken);
+        var counts = new Dictionary<(DateTimeOffset Start, string Group), long>();
+
+        for (var index = 0; index < hashes.Length; index++)
+        {
+            var bucketStart = FloorToOutputBucket(timestamps[index], outputMinutes);
+            foreach (var (group, count) in ReadBucketCounts(filter, hashes[index]))
+            {
+                var key = (bucketStart, group);
+                counts[key] = counts.GetValueOrDefault(key) + count;
+            }
+        }
+
+        return new LogAggregationResult(counts
+            .Select(item => new LogAggregationBucket(
+                item.Key.Start,
+                item.Key.Group == "__total" ? null : item.Key.Group,
+                item.Value))
+            .ToList());
+    }
+
+    private static LogAggregationResult Merge(IReadOnlyList<LogAggregationResult> parts)
+    {
+        var counts = new Dictionary<(DateTimeOffset Start, string Group), long>();
+        foreach (var part in parts)
+        {
+            foreach (var bucket in part.Buckets)
+            {
+                var key = (bucket.Start, bucket.Group ?? "__total");
+                counts[key] = counts.GetValueOrDefault(key) + bucket.Count;
+            }
+        }
+
+        return new LogAggregationResult(counts
+            .Select(item => new LogAggregationBucket(
+                item.Key.Start,
+                item.Key.Group == "__total" ? null : item.Key.Group,
+                item.Value))
+            .OrderBy(bucket => bucket.Start)
+            .ThenBy(bucket => bucket.Group, StringComparer.Ordinal)
+            .ToList());
     }
 
     private static IReadOnlyDictionary<string, long> ReadBucketCounts(
@@ -271,17 +332,21 @@ public sealed class RedisAggregateRollup : IAggregateRollup, IHostedService
         return DateTimeOffset.FromUnixTimeSeconds(seconds - (seconds % bucketSeconds));
     }
 
-    private static bool IsAligned(DateTimeOffset timestamp, string bucket) =>
-        timestamp.Offset == TimeSpan.Zero
-        && timestamp.Second == 0
-        && timestamp.Millisecond == 0
-        && bucket switch
-        {
-            "5m" => timestamp.Minute % 5 == 0,
-            "1h" => timestamp.Minute == 0,
-            "1d" => timestamp.Minute == 0 && timestamp.Hour == 0,
-            _ => false
-        };
+    private static DateTimeOffset FloorToMinute(DateTimeOffset timestamp) =>
+        DateTimeOffset.FromUnixTimeSeconds(timestamp.ToUnixTimeSeconds() / 60 * 60);
+
+    private static DateTimeOffset CeilingToMinute(DateTimeOffset timestamp)
+    {
+        var floor = FloorToMinute(timestamp);
+        return floor == timestamp ? floor : floor.AddMinutes(1);
+    }
+
+    private static DateTimeOffset FloorToOutputBucket(DateTimeOffset timestamp, int minutes)
+    {
+        var seconds = timestamp.ToUnixTimeSeconds();
+        var bucketSeconds = minutes * 60;
+        return DateTimeOffset.FromUnixTimeSeconds(seconds - (seconds % bucketSeconds));
+    }
 
     private static void Increment(Dictionary<RedisValue, long> fields, RedisValue field) =>
         fields[field] = fields.GetValueOrDefault(field) + 1;

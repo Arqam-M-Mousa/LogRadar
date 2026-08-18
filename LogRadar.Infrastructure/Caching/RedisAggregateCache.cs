@@ -21,6 +21,9 @@ public sealed class RedisAggregateCache : IAggregateCache, IDisposable
     private readonly ILogger<RedisAggregateCache> _logger;
     private readonly TimeSpan _ttl;
     private readonly ConcurrentDictionary<string, Lazy<Task<LogAggregationResult>>> _inFlight = new();
+    private readonly ConcurrentDictionary<string, LocalEntry> _local = new();
+    private const int LocalCapacity = 128;
+    private static readonly TimeSpan LocalTtl = TimeSpan.FromSeconds(2);
 
     public RedisAggregateCache(
         IConnectionMultiplexer redis,
@@ -39,13 +42,19 @@ public sealed class RedisAggregateCache : IAggregateCache, IDisposable
         CancellationToken cancellationToken)
     {
         var key = CreateKey(filter);
+        if (_local.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
+            return cached.Result;
+
+        _local.TryRemove(key, out _);
         var pending = _inFlight.GetOrAdd(key, _ => new Lazy<Task<LogAggregationResult>>(
             () => ReadOrCreateAsync(key, filter, factory, cancellationToken),
             LazyThreadSafetyMode.ExecutionAndPublication));
 
         try
         {
-            return await pending.Value;
+            var result = await pending.Value;
+            AddLocal(key, result);
+            return result;
         }
         finally
         {
@@ -119,6 +128,16 @@ public sealed class RedisAggregateCache : IAggregateCache, IDisposable
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
+
+    private void AddLocal(string key, LogAggregationResult result)
+    {
+        if (_local.Count >= LocalCapacity)
+            _local.TryRemove(_local.Keys.FirstOrDefault() ?? key, out _);
+
+        _local[key] = new LocalEntry(result, DateTimeOffset.UtcNow.Add(LocalTtl));
+    }
+
+    private sealed record LocalEntry(LogAggregationResult Result, DateTimeOffset ExpiresAt);
 
     private sealed class CachedAggregation
     {

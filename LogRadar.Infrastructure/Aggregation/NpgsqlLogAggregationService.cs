@@ -1,6 +1,6 @@
 using LogRadar.Domain.Aggregation;
-using LogRadar.Infrastructure.Persistence;
 using LogRadar.Infrastructure.Caching;
+using LogRadar.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
@@ -31,7 +31,7 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
         LogAggregationFilter filter,
         CancellationToken cancellationToken)
     {
-        var rollupResult = await _rollups.TryGetAsync(filter, cancellationToken);
+        var rollupResult = await _rollups.TryGetAsync(filter, ExecuteAggregateAsync, cancellationToken);
         return rollupResult
             ?? await _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
     }

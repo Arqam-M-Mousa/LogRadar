@@ -1,5 +1,4 @@
 ﻿using LogRadar.Domain.Ingestion;
-using LogRadar.Infrastructure.Aggregation;
 using LogRadar.Infrastructure.Caching;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

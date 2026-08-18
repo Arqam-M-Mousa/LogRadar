@@ -10,6 +10,7 @@ public sealed class NoopAggregateRollup : IAggregateRollup, IHostedService
 
     public Task<LogAggregationResult?> TryGetAsync(
         LogAggregationFilter filter,
+        Func<LogAggregationFilter, CancellationToken, Task<LogAggregationResult>> queryFallback,
         CancellationToken cancellationToken) => Task.FromResult<LogAggregationResult?>(null);
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
