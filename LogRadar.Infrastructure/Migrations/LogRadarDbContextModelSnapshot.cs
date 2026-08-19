@@ -58,6 +58,9 @@ namespace LogRadar.Infrastructure.Migrations
                     b.HasIndex("Service", "Timestamp", "Id")
                         .IsDescending(false, true, true);
 
+                    b.HasIndex("Attributes")
+                        .HasMethod("gin");
+
                     b.ToTable("log", (string)null);
                 });
 #pragma warning restore 612, 618
