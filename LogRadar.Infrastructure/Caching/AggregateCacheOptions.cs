@@ -8,6 +8,4 @@ public sealed class AggregateCacheOptions
     public string? RedisConnection { get; init; }
     public string RedisKeyPrefix { get; init; } = "logradar:agg:";
     public int QueryTimeoutSeconds { get; init; } = 8;
-    public bool RollupEnabled { get; init; } = true;
-    public int RollupRetentionHours { get; init; } = 48;
 }

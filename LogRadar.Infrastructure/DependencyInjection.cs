@@ -10,7 +10,6 @@ using LogRadar.Infrastructure.Retention;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -28,7 +27,6 @@ public static class DependencyInjection
         services.AddNpgsqlPools(configuration);
         services.AddSingleton<NpgsqlLogBulkWriter>();
         services.AddAggregateCaching(configuration);
-        services.AddAggregateRollups();
         services.AddScoped<ILogQueryService, NpgsqlLogQueryService>();
         services.AddScoped<ILogAggregationService, NpgsqlLogAggregationService>();
         services.Configure<RetentionOptions>(options =>
@@ -107,37 +105,6 @@ public static class DependencyInjection
                 return new NoopAggregateCache();
             }
         });
-
-        return services;
-    }
-
-    private static IServiceCollection AddAggregateRollups(
-        this IServiceCollection services)
-    {
-        services.AddSingleton<IAggregateRollup>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<AggregateCacheOptions>>().Value;
-            if (!options.RedisEnabled || !options.RollupEnabled || string.IsNullOrWhiteSpace(options.RedisConnection))
-                return new NoopAggregateRollup();
-
-            var multiplexer = ConnectionMultiplexer.Connect(new ConfigurationOptions
-            {
-                EndPoints = { options.RedisConnection },
-                AbortOnConnectFail = false,
-                ConnectTimeout = 1000,
-                SyncTimeout = 1000,
-                AsyncTimeout = 1000,
-                ConnectRetry = 2
-            });
-
-            return new RedisAggregateRollup(
-                multiplexer,
-                sp.GetRequiredService<IOptions<AggregateCacheOptions>>(),
-                sp.GetRequiredService<ILogger<RedisAggregateRollup>>());
-        });
-
-        services.AddSingleton<IHostedService>(sp =>
-            (IHostedService)sp.GetRequiredService<IAggregateRollup>());
 
         return services;
     }

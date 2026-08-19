@@ -71,8 +71,7 @@ public class LogsController : ControllerBase
         {
             try
             {
-                await _ingestionService.WriteBatchAsync(validLogs, cancellationToken);
-                await _ingestionService.FlushAsync(cancellationToken);
+                await _ingestionService.PublishAsync(validLogs, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

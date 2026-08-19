@@ -1,5 +1,4 @@
 ﻿using LogRadar.Domain.Ingestion;
-using LogRadar.Infrastructure.Caching;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,31 +9,24 @@ public sealed class LogBatchWriterService : BackgroundService
 {
     private readonly LogIngestionChannel _channel;
     private readonly NpgsqlLogBulkWriter _bulkWriter;
-    private readonly IAggregateRollup _rollups;
     private readonly IngestionOptions _options;
     private readonly ILogger<LogBatchWriterService> _logger;
 
     public LogBatchWriterService(
         LogIngestionChannel channel,
         NpgsqlLogBulkWriter bulkWriter,
-        IAggregateRollup rollups,
         IOptions<IngestionOptions> options,
         ILogger<LogBatchWriterService> logger)
     {
         _channel = channel;
         _bulkWriter = bulkWriter;
-        _rollups = rollups;
         _options = options.Value;
         _logger = logger;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var concurrency = Math.Max(1, _options.WriterConcurrency);
-        var workers = Enumerable.Range(0, concurrency)
-            .Select(_ => RunWriterLoopAsync(stoppingToken));
-
-        return Task.WhenAll(workers);
+        return RunWriterLoopAsync(stoppingToken);
     }
 
     private async Task RunWriterLoopAsync(CancellationToken stoppingToken)
@@ -130,14 +122,9 @@ public sealed class LogBatchWriterService : BackgroundService
             if (included.Count == 0)
                 continue;
 
-            var startSequence = included[0].StartSequence;
-            var endSequence = included[^1].EndSequence;
-
             try
             {
                 await WriteWithRetryAsync(logBuffer, stoppingToken);
-                await _rollups.AddAsync(logBuffer, stoppingToken);
-                _channel.NotifyCommitted(startSequence, endSequence);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -146,7 +133,6 @@ public sealed class LogBatchWriterService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to write batch of {Count} logs to PostgreSQL", logBuffer.Count);
-                _channel.NotifyFailed(startSequence, endSequence, ex);
             }
         }
     }

@@ -11,9 +11,6 @@ public sealed class ChannelLogIngestionService : ILogIngestionService
         _channel = channel;
     }
 
-    public ValueTask WriteBatchAsync(IReadOnlyList<LogEntry> logs, CancellationToken cancellationToken) =>
-        _channel.WriteBatchAsync(logs, cancellationToken);
-
-    public Task FlushAsync(CancellationToken cancellationToken) =>
-        _channel.FlushAsync(cancellationToken);
+    public ValueTask PublishAsync(IReadOnlyList<LogEntry> logs, CancellationToken cancellationToken) =>
+        _channel.PublishAsync(logs, cancellationToken);
 }

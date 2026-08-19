@@ -158,7 +158,7 @@ Invalid parameters return HTTP 400:
 
 Aggregation is executed in PostgreSQL using `date_bin()` for time bucketing. Dynamic `GROUP BY` columns are selected exclusively from the validated `service`/`level` allow-list. All user-supplied values are parameterized.
 
-Redis is used as a disposable acceleration layer for minute, five-minute, hourly, and daily aggregations grouped or filtered by service and level. PostgreSQL is written first, and rollup updates are processed asynchronously without blocking ingestion. Hourly and daily results are composed by summing minute Redis buckets. Partial minute edges, message or attribute filters, missing or evicted Redis rollups, or expired rollups fall back to PostgreSQL.
+Redis is used as a disposable exact-result cache for aggregate queries. PostgreSQL remains authoritative, and cache misses or expired entries fall back to PostgreSQL.
 
 ## Attribute storage strategy
 
@@ -190,12 +190,12 @@ Each batch uses `DELETE ... WHERE Id IN (SELECT ... LIMIT)` to avoid long-runnin
 HTTP POST /logs
   -> validate and map each entry (single pass)
   -> bounded in-process channel (back-pressure when full)
-  -> concurrent batch writers
+   -> single background batch writer
   -> PostgreSQL binary COPY
 
 HTTP GET /logs or /logs/aggregate
   -> parameterized Npgsql query
-  -> Redis rollups when supported, otherwise PostgreSQL
+   -> exact-result Redis cache, otherwise PostgreSQL
 ```
 
 The bounded in-process channel separates request acceptance from database persistence while applying back-pressure when it reaches capacity. PostgreSQL remains the system of record for all log writes and reads. Because the buffer is process-local, accepted logs waiting in it are not durable until their batch has been written to PostgreSQL.
@@ -207,49 +207,39 @@ The bounded in-process channel separates request acceptance from database persis
 ```text
 POST /logs
   -> validate every entry
-  -> enqueue valid entries
-  -> wait for PostgreSQL COPY to complete
-  -> enqueue a small Redis rollup update
+  -> publish valid entries to the bounded channel
   -> return HTTP 200
 ```
 
-The PostgreSQL write happens before the log is acknowledged. Redis rollup processing happens separately and never blocks the request when its queue is full. If Redis is unavailable or falls behind, rollups are disabled for that process and aggregate queries use PostgreSQL instead.
+The request is acknowledged once its batch is accepted by the bounded channel. A single background writer batches entries and writes them to PostgreSQL. Redis is not part of the ingestion write path.
 
 #### Aggregation
 
 ```text
 GET /logs/aggregate
-  -> can Redis answer this filter?
-       yes: read minute counters from Redis
-            sum them into 5m, 1h, or 1d buckets
-            query PostgreSQL only for partial minute edges
-       no:  use the exact-result cache
-            -> 2-second local cache
-            -> in-flight request coalescing
-            -> Redis result cache
-            -> PostgreSQL aggregate query
+  -> exact-result Redis cache
+       hit: return cached buckets
+       miss: PostgreSQL aggregate query, then cache result
 ```
 
-Redis rollups support service/level filters and do not support message or attribute filters. Redis is an acceleration layer only; PostgreSQL remains authoritative in every path.
+Redis is an acceleration layer only; PostgreSQL remains authoritative.
 
 ### Configuration
 
 ```json
 "Ingestion": {
-  "ChannelCapacity": 32,
+  "ChannelCapacity": 128,
   "MaxBatchSize": 2000,
-  "FlushIntervalMs": 25,
-  "WriterConcurrency": 2
+  "FlushIntervalMs": 25
 }
 ```
 
-Redis rollups are configured separately. Redis is intentionally disposable because PostgreSQL remains the source of truth:
+Redis is intentionally disposable because PostgreSQL remains the source of truth:
 
 ```json
 "AggregationCache": {
   "RedisEnabled": true,
-  "RollupEnabled": true,
-  "RollupRetentionHours": 48
+  "TtlSeconds": 10
 }
 ```
 
@@ -257,20 +247,16 @@ Redis rollups are configured separately. Redis is intentionally disposable becau
 
 Caching code lives under `LogRadar.Infrastructure/Caching`:
 
-- `AggregateCacheOptions` — settings for Redis result caching and rollups.
+- `AggregateCacheOptions` — settings for Redis result caching.
 - `IAggregateCache` — contract for caching a complete aggregate response.
-- `RedisAggregateCache` — stores complete fallback responses in Redis, keeps up to 128 exact results locally for 2 seconds, and coalesces identical concurrent requests.
+- `RedisAggregateCache` — stores complete aggregate responses in Redis with a short TTL.
 - `NoopAggregateCache` — bypasses result caching when Redis is disabled.
-- `IAggregateRollup` — contract for reusable time-bucket counters.
-- `RedisAggregateRollup` — asynchronously writes minute counters, composes larger buckets, and combines PostgreSQL partial edges.
-- `NoopAggregateRollup` — disables rollups without changing the ingestion or query pipeline.
 
 | Setting | Default | Description |
 |---|---|---|
-| `ChannelCapacity` | 32 | Max queued request batches before back-pressure |
+| `ChannelCapacity` | 128 | Max queued request batches before back-pressure |
 | `MaxBatchSize` | 2000 | Max rows per PostgreSQL binary `COPY` call |
 | `FlushIntervalMs` | 25 | How long a writer waits to fill a batch before flushing early |
-| `WriterConcurrency` | 2 | Number of concurrent background writers draining the channel |
 
 ## Performance results
 

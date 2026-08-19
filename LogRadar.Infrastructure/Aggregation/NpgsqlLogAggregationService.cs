@@ -12,18 +12,15 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly IAggregateCache _cache;
-    private readonly IAggregateRollup _rollups;
     private readonly int _commandTimeoutSeconds;
 
     public NpgsqlLogAggregationService(
         ReadNpgsqlDataSource readDataSource,
         IAggregateCache cache,
-        IAggregateRollup rollups,
         IOptions<AggregateCacheOptions> options)
     {
         _dataSource = readDataSource.DataSource;
         _cache = cache;
-        _rollups = rollups;
         _commandTimeoutSeconds = Math.Max(1, options.Value.QueryTimeoutSeconds);
     }
 
@@ -31,9 +28,7 @@ public sealed class NpgsqlLogAggregationService : ILogAggregationService
         LogAggregationFilter filter,
         CancellationToken cancellationToken)
     {
-        var rollupResult = await _rollups.TryGetAsync(filter, ExecuteAggregateAsync, cancellationToken);
-        return rollupResult
-            ?? await _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
+        return await _cache.GetOrAddAsync(filter, ExecuteAggregateAsync, cancellationToken);
     }
 
     private async Task<LogAggregationResult> ExecuteAggregateAsync(
