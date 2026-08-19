@@ -37,6 +37,9 @@ public class LogConfiguration : IEntityTypeConfiguration<Log>
 
         builder.HasIndex(x => new { x.Service, x.Timestamp, x.Id })
             .IsDescending(false, true, true);
+
+        builder.HasIndex(x => x.Attributes)
+            .HasMethod("gin");
     }
 
 }
